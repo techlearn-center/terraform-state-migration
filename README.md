@@ -435,7 +435,9 @@ terraform-state-migration/
 
 ## Tasks
 
-### Task 1: Local to Remote State Migration
+---
+
+### Task 1: Local to Remote State Migration (Detailed Walkthrough)
 
 Migrate an existing local state file to an S3 backend.
 
@@ -443,70 +445,217 @@ Migrate an existing local state file to an S3 backend.
 
 **Objective:** You have a project with local state. Migrate it to S3.
 
-**Steps:**
-1. Review the existing `main.tf` and local state
-2. Create an S3 bucket for state storage (provided via script)
-3. Configure `backend.tf` with S3 backend
-4. Run migration with `terraform init -migrate-state`
-5. Verify state was migrated successfully
+#### Step 1: Start LocalStack and Navigate to Scenario
 
 ```bash
+# Start LocalStack (from project root)
+docker-compose up -d
+
+# Verify LocalStack is running
+docker-compose ps
+
+# Navigate to scenario 1
 cd scenario-1-local-to-remote
-
-# See existing local state
-terraform state list
-
-# Your task: Add backend.tf and migrate
-# Then run:
-terraform init -migrate-state
-
-# Verify migration
-terraform plan  # Should show "No changes"
 ```
 
-**Files to create/complete:**
-- `backend.tf` - S3 backend configuration
+#### Step 2: Create the S3 Bucket for State Storage
+
+```bash
+# Run the bucket creation script
+chmod +x create-bucket.sh
+./create-bucket.sh
+
+# Or manually create the bucket:
+aws s3 mb s3://terraform-state-migration-demo --endpoint-url http://localhost:4566
+```
+
+#### Step 3: Initialize with LOCAL State First (Important!)
+
+The backend block in `backend.tf` should be **commented out** initially.
+
+```bash
+# Verify backend.tf has the S3 backend COMMENTED OUT
+cat backend.tf
+
+# Initialize Terraform (uses local state)
+terraform init
+```
+
+#### Step 4: Create Resources with Local State
+
+```bash
+# Apply to create resources (state stored LOCALLY in terraform.tfstate)
+terraform apply -auto-approve
+
+# Verify resources were created
+terraform state list
+# Should show:
+# aws_instance.web
+# aws_security_group.web
+
+# Verify local state file exists
+ls -la terraform.tfstate
+```
+
+#### Step 5: Uncomment the S3 Backend
+
+Edit `backend.tf` and **uncomment** the entire terraform block:
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket = "terraform-state-migration-demo"
+    key    = "scenario-1/terraform.tfstate"
+    region = "us-east-1"
+
+    # For LocalStack only - remove for real AWS
+    endpoints = {
+      s3 = "http://localhost:4566"
+    }
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
+    use_path_style              = true
+    access_key                  = "test"
+    secret_key                  = "test"
+  }
+}
+```
+
+#### Step 6: Migrate State from Local to S3
+
+```bash
+# Run migration
+terraform init -migrate-state
+
+# When prompted: "Do you want to copy existing state to the new backend?"
+# Type: yes
+```
+
+#### Step 7: Verify Migration Was Successful
+
+```bash
+# This should show "No changes" - proving state migrated correctly
+terraform plan
+
+# Verify state is now in S3
+aws s3 ls s3://terraform-state-migration-demo/scenario-1/ --endpoint-url http://localhost:4566
+# Should show: terraform.tfstate
+
+# The local terraform.tfstate should now be empty or gone
+cat terraform.tfstate  # Should show empty or minimal content
+```
+
+#### Success Criteria
+- ✅ `terraform plan` shows "No changes"
+- ✅ State file exists in S3 bucket
+- ✅ Resources still exist and are managed
 
 ---
 
-### Task 2: Import Existing Resources
+### Task 2: Import Existing Resources (Detailed Walkthrough)
 
 Import manually-created AWS resources into Terraform.
 
 **Directory:** `scenario-2-import/`
 
-**Objective:** A resource was created manually. Import it into Terraform.
+**Objective:** A resource was created manually (via AWS Console). Import it into Terraform.
 
-**Steps:**
-1. Run `setup.sh` to create a resource manually (simulating console creation)
-2. Write the resource configuration in `main.tf`
-3. Run `terraform import` with the resource ID
-4. Update configuration to match the imported resource
-5. Verify with `terraform plan` (should show no changes)
+#### Step 1: Navigate to Scenario 2
 
 ```bash
-cd scenario-2-import
-
-# Create a resource "manually"
-./setup.sh
-
-# Your task: Write main.tf and import the resource
-terraform import aws_instance.imported <instance-id>
-
-# Show what was imported
-terraform state show aws_instance.imported
-
-# Update main.tf to match, then verify
-terraform plan  # Should show "No changes"
+cd ../scenario-2-import
 ```
 
-**Files to create/complete:**
-- `main.tf` - Resource configuration matching the imported resource
-- `import.sh` - Script to import the resource
+#### Step 2: Create a Resource "Manually" (Simulating AWS Console)
+
+```bash
+# This script creates an EC2 instance outside of Terraform
+chmod +x setup.sh
+./setup.sh
+
+# Note the Instance ID from the output! Example: i-abc123def456
+# Save it - you'll need it for the import command
+```
+
+#### Step 3: Initialize Terraform
+
+```bash
+terraform init
+```
+
+#### Step 4: Write the Resource Configuration
+
+Edit `main.tf` and add a resource block for the instance you want to import:
+
+```hcl
+# Add this resource block to main.tf
+resource "aws_instance" "imported" {
+  # Leave empty for now - we'll fill it after import
+}
+```
+
+#### Step 5: Import the Existing Resource
+
+```bash
+# Replace <instance-id> with the ID from setup.sh output
+terraform import aws_instance.imported <instance-id>
+
+# Example:
+# terraform import aws_instance.imported i-abc123def456
+```
+
+#### Step 6: View the Imported Resource Details
+
+```bash
+# Show all attributes of the imported resource
+terraform state show aws_instance.imported
+```
+
+This will display something like:
+```hcl
+resource "aws_instance" "imported" {
+    ami                    = "ami-04681a1dbd79675a5"
+    instance_type          = "t2.micro"
+    tags                   = {
+        "Name"      = "manually-created-instance"
+        "CreatedBy" = "console"
+    }
+    # ... more attributes
+}
+```
+
+#### Step 7: Update main.tf to Match the Imported State
+
+Copy the required attributes from `terraform state show` into your `main.tf`:
+
+```hcl
+resource "aws_instance" "imported" {
+  ami           = "ami-04681a1dbd79675a5"  # Copy from state show
+  instance_type = "t2.micro"               # Copy from state show
+
+  tags = {
+    Name      = "manually-created-instance"
+    CreatedBy = "console"
+  }
+}
+```
+
+#### Step 8: Verify Import Was Successful
+
+```bash
+# This should show "No changes" - proving config matches the resource
+terraform plan
+```
+
+#### Success Criteria
+- ✅ `terraform import` completes successfully
+- ✅ `terraform state show` displays resource attributes
+- ✅ `terraform plan` shows "No changes"
 
 ---
 
-### Task 3: Move Resources Between States
+### Task 3: Move Resources Between States (Detailed Walkthrough)
 
 Split a large Terraform project by moving resources to a new state.
 
@@ -514,40 +663,96 @@ Split a large Terraform project by moving resources to a new state.
 
 **Objective:** Move the database resources from `old-project` to `new-project`.
 
-**Steps:**
-1. Review resources in `old-project`
-2. Identify database resources to move
-3. Use `terraform state mv` to move resources
-4. Update configurations in both projects
-5. Verify both projects with `terraform plan`
+#### Step 1: Navigate to the Old Project
 
 ```bash
-cd scenario-3-move/old-project
+cd ../scenario-3-move/old-project
+```
 
-# List resources
+#### Step 2: Initialize and Create Resources in Old Project
+
+```bash
+# Initialize Terraform
+terraform init
+
+# Create all resources (web + database)
+terraform apply -auto-approve
+
+# List all resources
 terraform state list
+# Should show:
 # aws_instance.web
-# aws_db_instance.main
+# aws_instance.db
 # aws_security_group.web
 # aws_security_group.db
+```
 
-# Move database resources to new-project
+#### Step 3: Initialize the New Project
+
+```bash
+# Go to new project
+cd ../new-project
+
+# Initialize (creates empty state)
+terraform init
+
+# Go back to old project
+cd ../old-project
+```
+
+#### Step 4: Move Database Resources to New Project
+
+```bash
+# Move the database instance
 terraform state mv -state-out=../new-project/terraform.tfstate \
-  aws_db_instance.main aws_db_instance.main
+  aws_instance.db aws_instance.db
 
+# Move the database security group
 terraform state mv -state-out=../new-project/terraform.tfstate \
   aws_security_group.db aws_security_group.db
 
-# Verify both projects
-cd ../new-project
-terraform plan  # Should show no changes
-cd ../old-project
-terraform plan  # Should show no changes
+# Verify resources moved out of old project
+terraform state list
+# Should now only show:
+# aws_instance.web
+# aws_security_group.web
 ```
 
-**Files to complete:**
-- `old-project/main.tf` - Remove moved resources
-- `new-project/main.tf` - Add moved resources
+#### Step 5: Verify New Project Has the Resources
+
+```bash
+cd ../new-project
+
+# List resources in new project
+terraform state list
+# Should show:
+# aws_instance.db
+# aws_security_group.db
+```
+
+#### Step 6: Update Configuration Files
+
+**In `old-project/main.tf`:** Comment out or remove the database resources (aws_instance.db and aws_security_group.db)
+
+**In `new-project/main.tf`:** Uncomment the database resources
+
+#### Step 7: Verify Both Projects
+
+```bash
+# In new-project directory
+terraform plan
+# Should show "No changes"
+
+# Check old project
+cd ../old-project
+terraform plan
+# Should show "No changes"
+```
+
+#### Success Criteria
+- ✅ `terraform state list` shows correct resources in each project
+- ✅ `terraform plan` shows "No changes" in BOTH projects
+- ✅ Resources are now managed by separate state files
 
 ---
 
