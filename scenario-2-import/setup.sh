@@ -6,43 +6,50 @@
 ENDPOINT="http://localhost:4566"
 
 echo "Creating EC2 instance 'manually' (simulating AWS Console)..."
+echo ""
 
-# Get AMI ID
-AMI_ID=$(aws ec2 describe-images \
-  --owners amazon \
-  --filters "Name=name,Values=amzn2-ami-hvm-*-x86_64-gp2" \
-  --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
-  --output text \
-  --endpoint-url $ENDPOINT 2>/dev/null || echo "ami-12345678")
+# Create the instance using a simple AMI ID (LocalStack accepts any)
+RESULT=$(aws ec2 run-instances \
+  --image-id "ami-12345678" \
+  --instance-type "t2.micro" \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=manually-created-instance},{Key=CreatedBy,Value=console}]' \
+  --endpoint-url "$ENDPOINT" \
+  --output json 2>&1)
 
-# Create the instance
-INSTANCE_ID=$(aws ec2 run-instances \
-  --image-id $AMI_ID \
-  --instance-type t2.micro \
-  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=manually-created-instance},{Key=CreatedBy,Value=console}]" \
-  --query 'Instances[0].InstanceId' \
-  --output text \
-  --endpoint-url $ENDPOINT 2>/dev/null)
-
-if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" == "None" ]; then
-  # Fallback for LocalStack
-  INSTANCE_ID="i-$(date +%s)"
-  echo "LocalStack mode: Using simulated instance ID"
+# Check if command succeeded
+if [ $? -ne 0 ]; then
+  echo "Error: Could not create instance."
+  echo "Make sure LocalStack is running: docker run -d -p 4566:4566 localstack/localstack"
+  echo ""
+  echo "Error details: $RESULT"
+  exit 1
 fi
 
-echo ""
+# Extract instance ID
+INSTANCE_ID=$(echo "$RESULT" | grep -o '"InstanceId": "[^"]*"' | head -1 | cut -d'"' -f4)
+
+if [ -z "$INSTANCE_ID" ]; then
+  echo "Error: Could not extract instance ID from response."
+  exit 1
+fi
+
 echo "=========================================="
 echo "  MANUALLY CREATED RESOURCE"
 echo "=========================================="
 echo ""
 echo "Instance ID: $INSTANCE_ID"
-echo "AMI ID:      $AMI_ID"
+echo "AMI ID:      ami-12345678"
 echo "Type:        t2.micro"
 echo ""
 echo "=========================================="
 echo ""
 echo "Your task:"
-echo "1. Write a resource block in main.tf for this instance"
+echo "1. Add a minimal resource block to main.tf:"
+echo ""
+echo "   resource \"aws_instance\" \"imported\" {"
+echo "     # Will be filled in after import"
+echo "   }"
+echo ""
 echo "2. Run: terraform import aws_instance.imported $INSTANCE_ID"
 echo "3. Run: terraform state show aws_instance.imported"
 echo "4. Update main.tf to match the imported state"
@@ -51,3 +58,4 @@ echo ""
 
 # Save instance ID for reference
 echo "$INSTANCE_ID" > .instance_id
+echo "Instance ID saved to .instance_id"

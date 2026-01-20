@@ -53,10 +53,10 @@ data "aws_ami" "amazon_linux" {
 #   description = "Security group for database"
 #
 #   ingress {
-#     from_port   = 3306
-#     to_port     = 3306
-#     protocol    = "tcp"
-#     cidr_blocks = ["10.0.0.0/8"]  # Update as needed
+#     from_port       = 3306
+#     to_port         = 3306
+#     protocol        = "tcp"
+#     security_groups = ["<web-sg-id>"]  # Reference the web SG from old-project
 #   }
 #
 #   egress {

@@ -50,3 +50,14 @@ provider "aws" {
 #   # After import, run 'terraform state show aws_instance.imported'
 #   # to see all attributes, then add them here
 # }
+
+# TODO: Add your resource block here after running setup.sh
+# Example:
+# resource "aws_instance" "imported" {
+#   ami           = "ami-12345678"
+#   instance_type = "t2.micro"
+#   tags = {
+#     Name      = "manually-created-instance"
+#     CreatedBy = "console"
+#   }
+# }
