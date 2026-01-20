@@ -834,13 +834,33 @@ echo "Your bucket: $STATE_BUCKET"
 
 #### Step 2: Update Provider Configuration
 
-Edit `scenario-1-local-to-remote/main.tf` - remove LocalStack settings:
+Edit `scenario-1-local-to-remote/main.tf` and **replace the entire provider block**:
 
+**BEFORE (LocalStack - delete this):**
 ```hcl
-# Real AWS provider (remove all LocalStack-specific settings)
 provider "aws" {
   region = "us-east-1"
-  # No endpoints, skip_*, or test credentials needed
+
+  access_key = "test"
+  secret_key = "test"
+
+  endpoints {
+    ec2 = "http://localhost:4566"
+    s3  = "http://localhost:4566"
+    sts = "http://localhost:4566"
+  }
+
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+}
+```
+
+**AFTER (Real AWS - use this instead):**
+```hcl
+provider "aws" {
+  region = "us-east-1"
+  # That's it! AWS CLI credentials are used automatically
 }
 ```
 
@@ -941,16 +961,42 @@ INSTANCE_ID=$(aws ec2 run-instances \
 echo "Instance ID: $INSTANCE_ID"
 ```
 
-#### Step 2: Update Provider and Import
+#### Step 2: Update Provider for Real AWS
 
-Edit `scenario-2-import/main.tf` for real AWS:
+Edit `scenario-2-import/main.tf` and **replace the entire provider block**:
 
+**BEFORE (LocalStack - delete this):**
 ```hcl
 provider "aws" {
   region = "us-east-1"
-}
 
-# Add minimal resource block
+  # LocalStack configuration (remove for real AWS)
+  access_key = "test"
+  secret_key = "test"
+
+  endpoints {
+    ec2 = "http://localhost:4566"
+    s3  = "http://localhost:4566"
+    sts = "http://localhost:4566"
+  }
+
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+}
+```
+
+**AFTER (Real AWS - use this instead):**
+```hcl
+provider "aws" {
+  region = "us-east-1"
+  # That's it! AWS CLI credentials are used automatically
+}
+```
+
+Then add a minimal resource block at the bottom of the file:
+
+```hcl
 resource "aws_instance" "imported" {
   # Will fill in after import
 }
@@ -1003,12 +1049,35 @@ Same process as LocalStack, but update providers in both projects:
 
 #### Step 1: Update Providers
 
-Edit both `old-project/main.tf` and `new-project/main.tf`:
+Edit both `scenario-3-move/old-project/main.tf` and `scenario-3-move/new-project/main.tf`.
 
+In each file, find the provider block and **replace the entire thing**:
+
+**BEFORE (LocalStack - delete this):**
 ```hcl
 provider "aws" {
   region = "us-east-1"
-  # Remove all LocalStack-specific settings
+
+  access_key = "test"
+  secret_key = "test"
+
+  endpoints {
+    ec2 = "http://localhost:4566"
+    rds = "http://localhost:4566"
+    sts = "http://localhost:4566"
+  }
+
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+}
+```
+
+**AFTER (Real AWS - use this instead):**
+```hcl
+provider "aws" {
+  region = "us-east-1"
+  # That's it! AWS CLI credentials are used automatically
 }
 ```
 
