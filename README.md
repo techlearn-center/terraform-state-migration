@@ -995,21 +995,48 @@ python run.py --verify --mode aws --evidence
 
 ### Step 6: Clean Up AWS Resources (IMPORTANT!)
 
+> **Note:** Each scenario is independent with its own directory. You can work on them in any order, and completing one doesn't affect the others.
+
+**After completing each scenario (to avoid charges):**
+
 ```bash
-# Destroy resources to avoid charges
+# Scenario 1
 cd scenario-1-local-to-remote
 terraform destroy -auto-approve
 
+# Scenario 2
 cd ../scenario-2-import
 terraform destroy -auto-approve
 
+# Scenario 3 (two projects)
 cd ../scenario-3-move/old-project
 terraform destroy -auto-approve
 cd ../new-project
 terraform destroy -auto-approve
 
-# Delete S3 bucket
-aws s3 rb s3://$STATE_BUCKET --force
+# Scenario 4
+cd ../../scenario-4-backend-migration
+terraform destroy -auto-approve
+
+# Scenario 5
+cd ../scenario-5-state-recovery
+terraform destroy -auto-approve
+```
+
+**Delete S3 buckets when completely done:**
+
+```bash
+# Scenario 1 bucket (use your actual bucket name from script output)
+aws s3 rb s3://YOUR-SCENARIO1-BUCKET --force
+
+# Scenario 4 buckets (use your actual bucket names)
+aws s3 rb s3://YOUR-BUCKET-A --force
+aws s3 rb s3://YOUR-BUCKET-B --force
+```
+
+**LocalStack users:** Just stop Docker when done:
+```bash
+docker-compose down
 ```
 
 ### Step 7: Submit Your Work
