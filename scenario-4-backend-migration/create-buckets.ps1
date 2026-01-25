@@ -125,15 +125,13 @@ if ($Mode -eq "aws") {
     Write-Host "Source: s3://$BUCKET_A" -ForegroundColor White
     Write-Host "Target: s3://$BUCKET_B" -ForegroundColor White
     Write-Host ""
-    Write-Host "IMPORTANT: Update the backend files:" -ForegroundColor Yellow
+    Write-Host "IMPORTANT: Update the backend files with your bucket names:" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "1. Edit backend-a.tf:"
-    Write-Host "   - Set: bucket = `"$BUCKET_A`""
-    Write-Host "   - REMOVE all LocalStack settings (endpoints, skip_*, access_key, etc.)"
+    Write-Host "1. In backend-a.tf, set: bucket = `"$BUCKET_A`""
+    Write-Host "2. In backend-b.tf.example, set: bucket = `"$BUCKET_B`""
     Write-Host ""
-    Write-Host "2. Edit backend-b.tf.example:"
-    Write-Host "   - Set: bucket = `"$BUCKET_B`""
-    Write-Host "   - REMOVE all LocalStack settings"
+    Write-Host "NOTE: For Real AWS, use clean S3 backend config (no LocalStack settings)." -ForegroundColor Yellow
+    Write-Host "      See the template comments for the correct format."
     Write-Host ""
     Write-Host "Then follow these steps:" -ForegroundColor Cyan
     Write-Host "  1. terraform init (uses backend-a.tf)"

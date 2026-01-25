@@ -136,7 +136,7 @@ if ($Mode -eq "aws") {
     Write-Host ""
     Write-Host "Bucket: s3://$BUCKET_NAME" -ForegroundColor White
     Write-Host ""
-    Write-Host "IMPORTANT: Update backend.tf with this configuration:" -ForegroundColor Yellow
+    Write-Host "IMPORTANT: Update backend.tf with this S3 backend configuration:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "terraform {"
     Write-Host "  backend `"s3`" {"
@@ -147,14 +147,8 @@ if ($Mode -eq "aws") {
     Write-Host "  }"
     Write-Host "}"
     Write-Host ""
-    Write-Host "Also REMOVE these LocalStack-specific lines from backend.tf:" -ForegroundColor Yellow
-    Write-Host "  - endpoints { ... }"
-    Write-Host "  - skip_credentials_validation = true"
-    Write-Host "  - skip_metadata_api_check = true"
-    Write-Host "  - skip_requesting_account_id = true"
-    Write-Host "  - use_path_style = true"
-    Write-Host "  - access_key = `"test`""
-    Write-Host "  - secret_key = `"test`""
+    Write-Host "NOTE: Replace the entire S3 backend block with the above." -ForegroundColor Yellow
+    Write-Host "      (The template has LocalStack settings - don't use those for Real AWS)"
     Write-Host ""
     Write-Host "Then run:"
     Write-Host "  terraform init -migrate-state"
