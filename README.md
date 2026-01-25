@@ -810,36 +810,24 @@ aws s3 ls s3://YOUR-BUCKET-NAME/ --recursive > ../evidence/s3-state-proof.txt
 ```bash
 cd ../scenario-2-import
 
-# Create an EC2 instance manually via AWS Console or CLI
-AMI_ID=$(aws ec2 describe-images \
-  --owners amazon \
-  --filters "Name=name,Values=al2023-ami-*-x86_64" \
-  --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
-  --output text)
-
-INSTANCE_ID=$(aws ec2 run-instances \
-  --image-id $AMI_ID \
-  --instance-type t2.micro \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=manually-created}]' \
-  --query 'Instances[0].InstanceId' \
-  --output text)
-
-echo "Instance ID: $INSTANCE_ID"
-# SAVE THIS ID!
+# Create an EC2 instance "manually" using the script
+chmod +x setup.sh
+./setup.sh aws
+# Note the Instance ID from output!
 
 # Initialize Terraform
 terraform init
 
-# Add to main.tf:
+# Add resource block to main.tf (if not already there):
 # resource "aws_instance" "imported" { }
 
-# Import
-terraform import aws_instance.imported $INSTANCE_ID
+# Import the existing resource (use ID from script output)
+terraform import aws_instance.imported <INSTANCE_ID>
 
-# View attributes
+# View imported attributes
 terraform state show aws_instance.imported
 
-# Update main.tf with the correct ami and instance_type
+# Update main.tf to match (ami, instance_type, tags)
 # Then verify
 terraform plan
 # Should show: "No changes"
@@ -923,46 +911,25 @@ aws s3 ls s3://YOUR-BUCKET-B/ --recursive > ../evidence/scenario4-bucket-b.txt
 ```bash
 cd ../scenario-5-state-recovery
 
-# Create resources manually (simulating orphaned resources)
-AMI_ID=$(aws ec2 describe-images \
-  --owners amazon \
-  --filters "Name=name,Values=al2023-ami-*-x86_64" \
-  --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
-  --output text)
+# Simulate a disaster using the script (creates resources, deletes state)
+chmod +x simulate-disaster.sh
+./simulate-disaster.sh aws
+# Note the Resource IDs from output!
 
-INSTANCE_ID=$(aws ec2 run-instances \
-  --image-id $AMI_ID \
-  --instance-type t2.micro \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=recovery-web-server}]' \
-  --query 'Instances[0].InstanceId' \
-  --output text)
-
-SG_ID=$(aws ec2 create-security-group \
-  --group-name "recovery-web-sg" \
-  --description "Recovery test" \
-  --query 'GroupId' \
-  --output text)
-
-VOLUME_ID=$(aws ec2 create-volume \
-  --availability-zone us-east-1a \
-  --size 100 \
-  --volume-type gp3 \
-  --query 'VolumeId' \
-  --output text)
-
-echo "Instance: $INSTANCE_ID, SG: $SG_ID, Volume: $VOLUME_ID"
-
-# Initialize (no state exists)
+# Initialize Terraform (no state exists - it was "lost")
 terraform init
 
-# Import resources to rebuild state
-terraform import aws_instance.web $INSTANCE_ID
-terraform import aws_security_group.web $SG_ID
-terraform import aws_ebs_volume.data $VOLUME_ID
+# See the problem - Terraform wants to CREATE (but resources exist!)
+terraform plan
+
+# Import resources to recover state (use IDs from script output)
+terraform import aws_instance.web <INSTANCE_ID>
+terraform import aws_security_group.web <SG_ID>
+terraform import aws_ebs_volume.data <VOLUME_ID>
 
 # Update main.tf to match imported attributes
 terraform state show aws_instance.web
-# Update ami, instance_type in main.tf
+# Update ami, instance_type, etc. in main.tf
 
 # Verify recovery
 terraform plan  # Should show "No changes"
