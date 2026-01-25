@@ -7,9 +7,13 @@
 # It works with both LocalStack (free) and Real AWS.
 #
 # USAGE:
-#   ./create-bucket.sh              # Uses LocalStack (default)
-#   ./create-bucket.sh localstack   # Explicitly use LocalStack
-#   ./create-bucket.sh aws          # Use Real AWS
+#   ./create-bucket.sh                    # Uses LocalStack (default)
+#   ./create-bucket.sh localstack         # Explicitly use LocalStack
+#   ./create-bucket.sh aws                # Use Real AWS (auto-generates name)
+#   ./create-bucket.sh aws my-bucket-name # Use Real AWS with custom name
+#
+# ENVIRONMENT VARIABLES:
+#   AWS_DEFAULT_REGION - AWS region (default: us-east-1)
 #
 # ============================================================================
 
@@ -17,6 +21,7 @@ set -e
 
 # Determine mode from argument (default: localstack)
 MODE="${1:-localstack}"
+CUSTOM_BUCKET="${2:-}"
 
 echo "=============================================="
 echo "  Create S3 Bucket for Terraform State"
@@ -39,23 +44,55 @@ if [ "$MODE" = "aws" ]; then
         exit 1
     fi
 
-    # Get account ID for unique bucket name
+    # Get account ID
     ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-    BUCKET_NAME="tfstate-${ACCOUNT_ID}"
     REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+
+    # Determine bucket name
+    if [ -n "$CUSTOM_BUCKET" ]; then
+        BUCKET_NAME="$CUSTOM_BUCKET"
+    else
+        # Generate a unique name with timestamp
+        TIMESTAMP=$(date +%Y%m%d%H%M%S)
+        BUCKET_NAME="tfstate-scenario1-${ACCOUNT_ID}-${TIMESTAMP}"
+    fi
 
     echo "Account ID: $ACCOUNT_ID"
     echo "Bucket Name: $BUCKET_NAME"
     echo "Region: $REGION"
     echo ""
 
-    # Create bucket
-    echo "Creating S3 bucket..."
-    if [ "$REGION" = "us-east-1" ]; then
-        aws s3 mb "s3://$BUCKET_NAME" --region "$REGION" 2>/dev/null || echo "Bucket may already exist"
+    # Check if bucket already exists and we own it
+    if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+        echo "✅ Bucket '$BUCKET_NAME' already exists and you own it."
+        echo ""
     else
-        aws s3 mb "s3://$BUCKET_NAME" --region "$REGION" \
-            --create-bucket-configuration LocationConstraint="$REGION" 2>/dev/null || echo "Bucket may already exist"
+        # Create bucket
+        echo "Creating S3 bucket..."
+        if [ "$REGION" = "us-east-1" ]; then
+            if ! aws s3 mb "s3://$BUCKET_NAME" --region "$REGION"; then
+                echo ""
+                echo "❌ Failed to create bucket '$BUCKET_NAME'"
+                echo ""
+                echo "Possible causes:"
+                echo "  1. Bucket name already taken globally"
+                echo "  2. Invalid bucket name"
+                echo "  3. Insufficient permissions"
+                echo ""
+                echo "Try with a custom bucket name:"
+                echo "  ./create-bucket.sh aws my-unique-bucket-name"
+                echo ""
+                exit 1
+            fi
+        else
+            if ! aws s3 mb "s3://$BUCKET_NAME" --region "$REGION" \
+                --create-bucket-configuration LocationConstraint="$REGION"; then
+                echo ""
+                echo "❌ Failed to create bucket"
+                exit 1
+            fi
+        fi
+        echo "✅ Bucket created successfully!"
     fi
 
     # Enable versioning
@@ -63,6 +100,7 @@ if [ "$MODE" = "aws" ]; then
     aws s3api put-bucket-versioning \
         --bucket "$BUCKET_NAME" \
         --versioning-configuration Status=Enabled
+    echo "✅ Versioning enabled"
 
     # Enable encryption
     echo "Enabling encryption..."
@@ -71,6 +109,7 @@ if [ "$MODE" = "aws" ]; then
         --server-side-encryption-configuration '{
             "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]
         }'
+    echo "✅ Encryption enabled"
 
     # Block public access
     echo "Blocking public access..."
@@ -78,24 +117,34 @@ if [ "$MODE" = "aws" ]; then
         --bucket "$BUCKET_NAME" \
         --public-access-block-configuration \
             "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+    echo "✅ Public access blocked"
 
     echo ""
     echo "=============================================="
-    echo "  ✅ Bucket Created Successfully!"
+    echo "  ✅ Bucket Ready!"
     echo "=============================================="
     echo ""
     echo "Bucket: s3://$BUCKET_NAME"
     echo ""
-    echo "IMPORTANT: Update backend.tf with:"
+    echo "IMPORTANT: Update backend.tf with this configuration:"
     echo ""
-    echo '  terraform {'
-    echo '    backend "s3" {'
-    echo "      bucket = \"$BUCKET_NAME\""
-    echo '      key    = "scenario-1/terraform.tfstate"'
-    echo "      region = \"$REGION\""
-    echo '      encrypt = true'
-    echo '    }'
-    echo '  }'
+    echo "terraform {"
+    echo "  backend \"s3\" {"
+    echo "    bucket  = \"$BUCKET_NAME\""
+    echo "    key     = \"scenario-1/terraform.tfstate\""
+    echo "    region  = \"$REGION\""
+    echo "    encrypt = true"
+    echo "  }"
+    echo "}"
+    echo ""
+    echo "Also REMOVE these LocalStack-specific lines from backend.tf:"
+    echo "  - endpoints { ... }"
+    echo "  - skip_credentials_validation = true"
+    echo "  - skip_metadata_api_check = true"
+    echo "  - skip_requesting_account_id = true"
+    echo "  - use_path_style = true"
+    echo "  - access_key = \"test\""
+    echo "  - secret_key = \"test\""
     echo ""
     echo "Then run:"
     echo "  terraform init -migrate-state"
