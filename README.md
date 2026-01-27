@@ -882,55 +882,98 @@ terraform plan
 
 #### Scenario 2: Import Existing Resources
 
+**Step 2.1: Go to the scenario directory**
 ```bash
 cd ../scenario-2-import
+```
 
-# Create a resource "manually" (simulating AWS Console)
+**Step 2.2: Create a resource "manually" (simulating AWS Console)**
+```bash
 chmod +x setup.sh
 ./setup.sh
-
-# ⚠️ The script output will show:
-# ==============================================
-#   MANUALLY CREATED RESOURCE (LocalStack)
-# ==============================================
-#
-# Instance ID: i-abc123def456      ← USE THIS for terraform import
-# AMI ID:      ami-12345678        ← USE THIS in main.tf
-# Type:        t2.micro
-#
-# SAVE THESE VALUES! You need them below.
-
-# Initialize Terraform
-terraform init
-
-# Add EMPTY resource block to main.tf (if not already there):
-# resource "aws_instance" "imported" { }
-
-# Import the existing resource (use INSTANCE ID from setup.sh output)
-terraform import aws_instance.imported <INSTANCE_ID>
-# Example: terraform import aws_instance.imported i-abc123def456
-
-# View imported attributes
-terraform state show aws_instance.imported
-
-# Update main.tf with required attributes from state show:
-# ┌────────────────────────────────────────────────────────────┐
-# │ resource "aws_instance" "imported" {                       │
-# │   ami           = "ami-12345678"  # ← AMI ID from script   │
-# │   instance_type = "t2.micro"                               │
-# │                                                            │
-# │   tags = {                                                 │
-# │     Name      = "manually-created-instance"                │
-# │     CreatedBy = "console"                                  │
-# │   }                                                        │
-# │ }                                                          │
-# └────────────────────────────────────────────────────────────┘
-# ⚠️ ami must be AMI ID (ami-xxx), NOT Instance ID (i-xxx)!
-
-# Verify import succeeded
-terraform plan
-# Should show: "No changes"
 ```
+
+The script will output something like this - **SAVE THESE VALUES!**
+```
+==============================================
+  MANUALLY CREATED RESOURCE (LocalStack)
+==============================================
+
+Instance ID: i-abc123def456    ← SAVE THIS (for terraform import)
+AMI ID:      ami-12345678      ← SAVE THIS (for main.tf)
+Type:        t2.micro
+
+==============================================
+```
+
+**Step 2.3: Add an empty resource block to main.tf**
+
+Open `main.tf` in your editor. At the bottom of the file (after the comments), add this line:
+```hcl
+resource "aws_instance" "imported" {
+}
+```
+
+**Step 2.4: Initialize Terraform**
+```bash
+terraform init
+```
+
+**Step 2.5: Import the existing instance into Terraform**
+
+Use the **Instance ID** from Step 2.2 (starts with `i-`):
+```bash
+terraform import aws_instance.imported i-abc123def456
+```
+(Replace `i-abc123def456` with YOUR Instance ID from the script output)
+
+**Step 2.6: View the imported attributes**
+```bash
+terraform state show aws_instance.imported
+```
+
+This shows all the attributes. Look for these values:
+- `ami = "ami-12345678"` ← Copy this AMI ID
+- `instance_type = "t2.micro"`
+- `tags = { ... }`
+
+**Step 2.7: Update main.tf to match the imported state**
+
+Open `main.tf` and replace the empty resource block with the actual values:
+
+```hcl
+resource "aws_instance" "imported" {
+  ami           = "ami-12345678"  # ← Use AMI ID from state show (NOT Instance ID!)
+  instance_type = "t2.micro"
+
+  tags = {
+    Name      = "manually-created-instance"
+    CreatedBy = "console"
+  }
+}
+```
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ⚠️ CRITICAL: ami vs Instance ID - They are DIFFERENT!         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ❌ WRONG: ami = "i-abc123def456"   (This is Instance ID)      │
+│  ✅ RIGHT: ami = "ami-12345678"     (This is AMI ID)           │
+│                                                                 │
+│  Instance ID (i-xxx) = The unique ID of your running server    │
+│  AMI ID (ami-xxx) = The template/image used to create it       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Step 2.8: Verify - must show "No changes"**
+```bash
+terraform plan
+```
+
+If it shows "No changes" → Success!
+If it shows changes → Your main.tf values don't match. Run `terraform state show aws_instance.imported` again and copy the exact values.
 
 #### Scenario 3: Move Resources Between States
 
@@ -1176,50 +1219,138 @@ aws s3 ls s3://YOUR-BUCKET-NAME/ --recursive > ../evidence/s3-state-proof.txt
 
 #### Scenario 2: Import Existing Resources
 
+**Step 2.1: Go to the scenario directory**
 ```bash
 cd ../scenario-2-import
+```
 
-# Create an EC2 instance "manually" using the script
+**Step 2.2: Update the provider in main.tf for Real AWS**
+
+Open `main.tf` in your editor. Find and DELETE this LocalStack provider block (lines 18-34):
+```hcl
+# DELETE THIS ENTIRE BLOCK:
+provider "aws" {
+  region = "us-east-1"
+  access_key = "test"
+  secret_key = "test"
+  endpoints {
+    ec2 = "http://localhost:4566"
+    s3  = "http://localhost:4566"
+    sts = "http://localhost:4566"
+  }
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+}
+```
+
+Replace it with this simple Real AWS provider:
+```hcl
+provider "aws" {
+  region = "us-east-1"
+}
+```
+
+**Step 2.3: Create an EC2 instance "manually" using the script**
+```bash
 chmod +x setup.sh
 ./setup.sh aws
-# ⚠️ IMPORTANT: Note both IDs from output:
-#   - Instance ID: i-0abc123...  (for terraform import)
-#   - AMI ID: ami-0abc123...     (for main.tf)
+```
 
-# Initialize Terraform (update provider to Real AWS first!)
+The script will output something like this - **SAVE THESE VALUES!**
+```
+==============================================
+  MANUALLY CREATED RESOURCE (Real AWS)
+==============================================
+
+Instance ID: i-0f5e8a7b3c2d1e4f6    ← SAVE THIS (for terraform import)
+AMI ID:      ami-0c55b159cbfafe1f0  ← SAVE THIS (for main.tf)
+Type:        t2.micro
+Region:      us-east-1
+
+==============================================
+```
+
+**Step 2.4: Add an empty resource block to main.tf**
+
+Open `main.tf` in your editor again. At the bottom of the file (after the comments), add this line:
+```hcl
+resource "aws_instance" "imported" {
+}
+```
+
+Your main.tf should now look like this at the end:
+```hcl
+# ... (provider and terraform blocks above) ...
+
+# TODO: Add your resource block here after running setup.sh
+resource "aws_instance" "imported" {
+}
+```
+
+**Step 2.5: Initialize Terraform**
+```bash
 terraform init
+```
 
-# Add EMPTY resource block to main.tf (if not already there):
-# resource "aws_instance" "imported" { }
+**Step 2.6: Import the existing instance into Terraform**
 
-# Import the existing resource (use INSTANCE ID from script)
-terraform import aws_instance.imported <INSTANCE_ID>
-# Example: terraform import aws_instance.imported i-0f5e8a7b3c2d1e4f6
+Use the **Instance ID** from Step 2.3 (starts with `i-`):
+```bash
+terraform import aws_instance.imported i-0f5e8a7b3c2d1e4f6
+```
+(Replace `i-0f5e8a7b3c2d1e4f6` with YOUR Instance ID from the script output)
 
-# View imported attributes to get values for main.tf
+**Step 2.7: View the imported attributes**
+```bash
 terraform state show aws_instance.imported
-# Look for: ami, instance_type, tags
+```
 
-# Update main.tf with ONLY these required attributes:
-# ┌────────────────────────────────────────────────────────────┐
-# │ resource "aws_instance" "imported" {                       │
-# │   ami           = "ami-xxx"   # ← From state show output   │
-# │   instance_type = "t2.micro"  # ← From state show output   │
-# │                                                            │
-# │   tags = {                    # ← From state show output   │
-# │     Name      = "manually-created-instance"                │
-# │     CreatedBy = "console"                                  │
-# │   }                                                        │
-# │ }                                                          │
-# └────────────────────────────────────────────────────────────┘
-# ⚠️ Do NOT put Instance ID (i-xxx) in the ami field!
-# ⚠️ ami must be AMI ID (ami-xxx), NOT Instance ID!
+This shows all the attributes. Look for these values:
+- `ami = "ami-xxxxxxxxx"` ← Copy this AMI ID
+- `instance_type = "t2.micro"`
+- `tags = { ... }`
 
-# Verify - must show "No changes"
+**Step 2.8: Update main.tf to match the imported state**
+
+Open `main.tf` and replace the empty resource block with the actual values:
+
+```hcl
+resource "aws_instance" "imported" {
+  ami           = "ami-0c55b159cbfafe1f0"  # ← Use AMI ID from state show (NOT Instance ID!)
+  instance_type = "t2.micro"
+
+  tags = {
+    Name      = "manually-created-instance"
+    CreatedBy = "console"
+  }
+}
+```
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ⚠️ CRITICAL: ami vs Instance ID - They are DIFFERENT!         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ❌ WRONG: ami = "i-0f5e8a7b3c2d1e4f6"   (This is Instance ID) │
+│  ✅ RIGHT: ami = "ami-0c55b159cbfafe1f0" (This is AMI ID)      │
+│                                                                 │
+│  Instance ID (i-xxx) = The unique ID of your running server    │
+│  AMI ID (ami-xxx) = The template/image used to create it       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Step 2.9: Verify - must show "No changes"**
+```bash
 terraform plan
-# If it shows changes, your main.tf doesn't match the state
+```
 
-# COLLECT EVIDENCE
+If it shows "No changes" → Success!
+If it shows changes → Your main.tf values don't match. Run `terraform state show aws_instance.imported` again and copy the exact values.
+
+**Step 2.10: Collect evidence**
+```bash
 terraform plan -no-color > ../evidence/scenario2-plan.txt
 terraform state show aws_instance.imported > ../evidence/scenario2-import.txt
 ```
