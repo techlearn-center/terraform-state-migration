@@ -4,6 +4,57 @@ Master the art of Terraform state management, migration, and disaster recovery.
 
 ---
 
+## Why This Skill Matters
+
+### Real-World Importance
+
+State migration is one of the **most critical skills** for any DevOps/Platform engineer working with Terraform. Here's why:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    WHY STATE MIGRATION MATTERS                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  💼 CAREER RELEVANCE                                            │
+│  ─────────────────────                                          │
+│  • Interview question: "How would you migrate Terraform state   │
+│    from local to S3 without downtime?"                          │
+│  • Senior-level skill that separates juniors from seniors       │
+│  • Required for production environments at most companies       │
+│                                                                 │
+│  🏢 REAL PRODUCTION SCENARIOS                                   │
+│  ──────────────────────────────                                 │
+│  • Company acquired → merge infrastructure into single state    │
+│  • Team growth → move from local to shared state                │
+│  • Compliance → migrate to encrypted, versioned backend         │
+│  • State corruption → rebuild from existing resources           │
+│  • Someone created resources manually → bring under Terraform   │
+│                                                                 │
+│  ⚠️ THE COST OF GETTING IT WRONG                                │
+│  ─────────────────────────────────                              │
+│  • Accidental deletion of production databases                  │
+│  • Hours of downtime while rebuilding state                     │
+│  • Data loss that cannot be recovered                           │
+│  • Orphaned resources costing money each month                  │
+│                                                                 │
+│  ✅ WHAT YOU'LL BE ABLE TO DO                                   │
+│  ──────────────────────────────                                 │
+│  • Confidently migrate state without touching real resources    │
+│  • Import manually-created resources under Terraform control    │
+│  • Recover from state corruption or accidental deletion         │
+│  • Split monolithic Terraform into manageable pieces            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### The Golden Rule of State Migration
+
+> **Terraform state is your source of truth.** If the state says a resource exists, Terraform believes it. If the state says it doesn't exist, Terraform will try to create it—even if it already exists in AWS.
+
+This is why understanding state is critical: **the wrong move can destroy production infrastructure.**
+
+---
+
 ## What You'll Learn
 
 - Understand Terraform state structure and purpose
@@ -502,6 +553,180 @@ terraform state push backup.json
 
 ---
 
+## Common Mistakes to Avoid
+
+### Understanding AWS Resource IDs
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              AWS RESOURCE IDs vs AMI IDs                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ⚠️ CRITICAL: These are NOT the same thing!                    │
+│                                                                 │
+│  INSTANCE ID (what you import)                                  │
+│  ─────────────────────────────                                  │
+│  • Format: i-0abc123def456789                                   │
+│  • What it is: Unique identifier for a running EC2 instance     │
+│  • Used with: terraform import aws_instance.name <INSTANCE_ID>  │
+│  • Example: i-0f5e8a7b3c2d1e4f6                                 │
+│                                                                 │
+│  AMI ID (Amazon Machine Image)                                  │
+│  ─────────────────────────────                                  │
+│  • Format: ami-0abc123def456789                                 │
+│  • What it is: Template used to LAUNCH the instance             │
+│  • Used in: main.tf as the "ami" attribute                      │
+│  • Example: ami-0c55b159cbfafe1f0 (Amazon Linux 2)              │
+│                                                                 │
+│  ❌ WRONG: ami = "i-0abc123def456789"  (Instance ID in ami)     │
+│  ✅ RIGHT: ami = "ami-0c55b159cbfafe1f0"  (Actual AMI ID)       │
+│                                                                 │
+│  How to get the AMI ID after import:                            │
+│  $ terraform state show aws_instance.imported                   │
+│  # Look for: ami = "ami-xxxxxxxxx"                              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### The Import Workflow - What Goes Where
+
+After running `terraform import`, you must update your `main.tf` to match the real resource. Here's exactly what to do:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              IMPORT WORKFLOW - STEP BY STEP                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  STEP 1: Create empty resource block                            │
+│  ───────────────────────────────────                            │
+│  # main.tf                                                      │
+│  resource "aws_instance" "imported" {                           │
+│    # Empty for now - will fill after import                     │
+│  }                                                              │
+│                                                                 │
+│  STEP 2: Run terraform import                                   │
+│  ───────────────────────────────                                │
+│  $ terraform import aws_instance.imported i-0abc123def456789    │
+│                                      ↑                ↑         │
+│                              resource name    instance ID       │
+│                                                                 │
+│  STEP 3: View what was imported                                 │
+│  ───────────────────────────────                                │
+│  $ terraform state show aws_instance.imported                   │
+│                                                                 │
+│  OUTPUT (example):                                              │
+│  # aws_instance.imported:                                       │
+│  resource "aws_instance" "imported" {                           │
+│      ami                          = "ami-0c55b159cbfafe1f0"     │
+│      instance_type                = "t2.micro"                  │
+│      id                           = "i-0abc123def456789"        │
+│      tags                         = {                           │
+│          "Name"      = "manually-created-instance"              │
+│          "CreatedBy" = "console"                                │
+│      }                                                          │
+│      ... (many other attributes)                                │
+│  }                                                              │
+│                                                                 │
+│  STEP 4: Copy ONLY required attributes to main.tf               │
+│  ────────────────────────────────────────────────               │
+│  resource "aws_instance" "imported" {                           │
+│    ami           = "ami-0c55b159cbfafe1f0"    # ← From state    │
+│    instance_type = "t2.micro"                 # ← From state    │
+│                                                                 │
+│    tags = {                                                     │
+│      Name      = "manually-created-instance"  # ← From state    │
+│      CreatedBy = "console"                    # ← From state    │
+│    }                                                            │
+│  }                                                              │
+│                                                                 │
+│  NOTE: You do NOT need to copy all attributes!                  │
+│  Only copy: ami, instance_type, and tags                        │
+│  Other attributes are computed (Terraform handles them)         │
+│                                                                 │
+│  STEP 5: Verify                                                 │
+│  ─────────────                                                  │
+│  $ terraform plan                                               │
+│  # Should show: "No changes. Your infrastructure matches..."    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Other Common Mistakes
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    COMMON MISTAKES TO AVOID                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ❌ MISTAKE 1: Running commands in wrong directory              │
+│  ────────────────────────────────────────────────               │
+│  Each scenario has its own directory!                           │
+│                                                                 │
+│  Wrong:                                                         │
+│  $ cd scenario-1-local-to-remote                                │
+│  $ terraform import aws_instance.imported i-xxx                 │
+│  # Error! "imported" doesn't exist in scenario-1                │
+│                                                                 │
+│  Right:                                                         │
+│  $ cd scenario-2-import    # ← Correct directory!               │
+│  $ terraform import aws_instance.imported i-xxx                 │
+│                                                                 │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                 │
+│  ❌ MISTAKE 2: Running terraform apply after failed import      │
+│  ─────────────────────────────────────────────────────────────  │
+│  If import fails and you run apply, Terraform will try to       │
+│  CREATE resources (because state is empty), which can fail      │
+│  or create duplicates!                                          │
+│                                                                 │
+│  Wrong:                                                         │
+│  $ terraform import ...   # Failed                              │
+│  $ terraform apply        # ← DON'T DO THIS!                    │
+│                                                                 │
+│  Right:                                                         │
+│  $ terraform import ...   # Failed                              │
+│  # Fix the issue first, then retry import                       │
+│                                                                 │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                 │
+│  ❌ MISTAKE 3: Not updating main.tf after import                │
+│  ─────────────────────────────────────────────────              │
+│  Import only adds resource to STATE, not your CODE!             │
+│                                                                 │
+│  $ terraform import aws_instance.imported i-xxx                 │
+│  $ terraform plan                                               │
+│  # Shows changes! (because main.tf doesn't match state)         │
+│                                                                 │
+│  Solution: Run terraform state show, then update main.tf        │
+│                                                                 │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                 │
+│  ❌ MISTAKE 4: Using instance ID instead of AMI ID              │
+│  ─────────────────────────────────────────────────              │
+│  ami = "i-0abc123def"  # WRONG! This is an instance ID          │
+│  ami = "ami-0abc123d"  # RIGHT! This is an AMI ID               │
+│                                                                 │
+│  Get the correct AMI ID from:                                   │
+│  $ terraform state show aws_instance.imported | grep ami        │
+│                                                                 │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                 │
+│  ❌ MISTAKE 5: Forgetting to update provider for Real AWS       │
+│  ─────────────────────────────────────────────────────────────  │
+│  LocalStack provider has endpoints, access_key, skip_* flags    │
+│  Real AWS provider should be simple:                            │
+│                                                                 │
+│  provider "aws" {                                               │
+│    region = "us-east-1"                                         │
+│  }                                                              │
+│                                                                 │
+│  If you see "localhost:4566" errors, your provider is wrong!    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Choose Your Path
 
 > **Pick ONE path and stick with it for the entire challenge.**
@@ -578,22 +803,27 @@ cd ../scenario-2-import
 # Create a resource "manually" (simulating AWS Console)
 chmod +x setup.sh
 ./setup.sh
-# Note the Instance ID from output!
+# ⚠️ Note the Instance ID from output (format: i-xxx)
 
 # Initialize Terraform
 terraform init
 
-# Add resource block to main.tf (if not already there)
+# Add EMPTY resource block to main.tf (if not already there):
 # resource "aws_instance" "imported" { }
 
-# Import the existing resource
+# Import the existing resource (use INSTANCE ID from setup.sh)
 terraform import aws_instance.imported <INSTANCE_ID>
+# Example: terraform import aws_instance.imported i-abc123def456
 
 # View imported attributes
 terraform state show aws_instance.imported
 
-# Update main.tf to match the imported state
-# Then verify
+# Update main.tf with required attributes from state show:
+# - ami (format: ami-xxx) ← NOT the instance ID!
+# - instance_type
+# - tags
+
+# Verify import succeeded
 terraform plan
 # Should show: "No changes"
 ```
@@ -813,24 +1043,42 @@ cd ../scenario-2-import
 # Create an EC2 instance "manually" using the script
 chmod +x setup.sh
 ./setup.sh aws
-# Note the Instance ID from output!
+# ⚠️ IMPORTANT: Note both IDs from output:
+#   - Instance ID: i-0abc123...  (for terraform import)
+#   - AMI ID: ami-0abc123...     (for main.tf)
 
-# Initialize Terraform
+# Initialize Terraform (update provider to Real AWS first!)
 terraform init
 
-# Add resource block to main.tf (if not already there):
+# Add EMPTY resource block to main.tf (if not already there):
 # resource "aws_instance" "imported" { }
 
-# Import the existing resource (use ID from script output)
+# Import the existing resource (use INSTANCE ID from script)
 terraform import aws_instance.imported <INSTANCE_ID>
+# Example: terraform import aws_instance.imported i-0f5e8a7b3c2d1e4f6
 
-# View imported attributes
+# View imported attributes to get values for main.tf
 terraform state show aws_instance.imported
+# Look for: ami, instance_type, tags
 
-# Update main.tf to match (ami, instance_type, tags)
-# Then verify
+# Update main.tf with ONLY these required attributes:
+# ┌────────────────────────────────────────────────────────────┐
+# │ resource "aws_instance" "imported" {                       │
+# │   ami           = "ami-xxx"   # ← From state show output   │
+# │   instance_type = "t2.micro"  # ← From state show output   │
+# │                                                            │
+# │   tags = {                    # ← From state show output   │
+# │     Name      = "manually-created-instance"                │
+# │     CreatedBy = "console"                                  │
+# │   }                                                        │
+# │ }                                                          │
+# └────────────────────────────────────────────────────────────┘
+# ⚠️ Do NOT put Instance ID (i-xxx) in the ami field!
+# ⚠️ ami must be AMI ID (ami-xxx), NOT Instance ID!
+
+# Verify - must show "No changes"
 terraform plan
-# Should show: "No changes"
+# If it shows changes, your main.tf doesn't match the state
 
 # COLLECT EVIDENCE
 terraform plan -no-color > ../evidence/scenario2-plan.txt
@@ -914,22 +1162,44 @@ cd ../scenario-5-state-recovery
 # Simulate a disaster using the script (creates resources, deletes state)
 chmod +x simulate-disaster.sh
 ./simulate-disaster.sh aws
-# Note the Resource IDs from output!
+# ⚠️ SAVE THESE IDs from the output:
+#   - Instance ID: i-xxx (for aws_instance.web)
+#   - Security Group ID: sg-xxx (for aws_security_group.web)
+#   - Volume ID: vol-xxx (for aws_ebs_volume.data)
 
 # Initialize Terraform (no state exists - it was "lost")
 terraform init
 
 # See the problem - Terraform wants to CREATE (but resources exist!)
 terraform plan
+# Will show "3 to add" - because Terraform doesn't know they exist!
 
 # Import resources to recover state (use IDs from script output)
 terraform import aws_instance.web <INSTANCE_ID>
 terraform import aws_security_group.web <SG_ID>
 terraform import aws_ebs_volume.data <VOLUME_ID>
 
-# Update main.tf to match imported attributes
+# View imported attributes for each resource
 terraform state show aws_instance.web
-# Update ami, instance_type, etc. in main.tf
+terraform state show aws_security_group.web
+terraform state show aws_ebs_volume.data
+
+# Update main.tf to match imported attributes:
+# ┌────────────────────────────────────────────────────────────┐
+# │ For aws_instance.web:                                      │
+# │   - ami = "ami-xxx" (from state show, NOT instance ID!)    │
+# │   - instance_type = "t2.micro"                             │
+# │   - tags as shown in state                                 │
+# │                                                            │
+# │ For aws_security_group.web:                                │
+# │   - name, description should already be correct            │
+# │   - ingress/egress rules may need adjustment               │
+# │                                                            │
+# │ For aws_ebs_volume.data:                                   │
+# │   - availability_zone                                      │
+# │   - size                                                   │
+# │   - type                                                   │
+# └────────────────────────────────────────────────────────────┘
 
 # Verify recovery
 terraform plan  # Should show "No changes"
@@ -1081,6 +1351,10 @@ For Real AWS submissions, include these files in `evidence/`:
 | "No changes" not showing after import | Update main.tf to match `terraform state show` output |
 | "Error acquiring state lock" | Wait or `terraform force-unlock <LOCK_ID>` |
 | LocalStack not responding | `docker-compose down && docker-compose up -d` |
+| "InvalidAMIID.Malformed" | You put Instance ID (i-xxx) in `ami` field. Use AMI ID (ami-xxx) instead! |
+| "Resource aws_instance.imported not found" | Wrong directory. Check you're in scenario-2-import, not scenario-1 |
+| "localhost:4566" connection refused | You're using LocalStack provider with Real AWS. Update provider block |
+| Import succeeded but plan shows changes | Your main.tf doesn't match imported state. Run `terraform state show` and copy values |
 
 ### State Lock Issues
 
