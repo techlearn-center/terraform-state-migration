@@ -1,0 +1,23 @@
+# Terraform Variables for REAL AWS
+# =================================
+# Rename this file to terraform.tfvars when using Real AWS
+#
+# TO USE:
+#   mv terraform.tfvars.aws.example terraform.tfvars
+#
+# =================================
+
+# Set to false for Real AWS
+use_localstack = false
+
+# Find your AMI ID:
+#   AWS Console -> EC2 -> AMIs -> Search for "Amazon Linux 2023"
+#   Or run: aws ec2 describe-images --owners amazon \
+#           --filters "Name=name,Values=al2023-ami-*-x86_64" \
+#           --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId'
+#
+# Common AMI IDs (may be outdated - always verify):
+#   us-east-1: ami-0c101f26f147fa7fd (Amazon Linux 2023)
+#   us-west-2: ami-008fe2fc65df48dac (Amazon Linux 2023)
+
+ami_id = "ami-0c101f26f147fa7fd"  # <-- UPDATE with current AMI for your region

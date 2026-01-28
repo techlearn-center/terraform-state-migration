@@ -1,5 +1,12 @@
-# Backend A Configuration
-# This is the INITIAL backend - state starts here
+# Backend A Configuration - LOCALSTACK
+# =====================================
+# This is the INITIAL backend for LocalStack - state starts here
+#
+# FOR REAL AWS: Use backend-a-aws.tf.example instead
+#   mv backend-a.tf backend-a-localstack.tf.bak
+#   mv backend-a-aws.tf.example backend-a.tf
+#
+# =====================================
 
 terraform {
   backend "s3" {
@@ -7,7 +14,7 @@ terraform {
     key    = "scenario-4/terraform.tfstate"
     region = "us-east-1"
 
-    # LocalStack settings (remove for Real AWS)
+    # LocalStack-specific settings
     endpoints = {
       s3 = "http://localhost:4566"
     }
@@ -21,22 +28,26 @@ terraform {
 }
 
 # =====================================================
-# INSTRUCTIONS:
+# LOCALSTACK INSTRUCTIONS:
 # =====================================================
 #
-# Step 1: Start with THIS file (backend-a.tf)
-#   - Run: terraform init
-#   - Run: terraform apply -auto-approve
-#   - Verify: aws s3 ls s3://tfstate-bucket-a/ --endpoint-url http://localhost:4566
+# SETUP:
+#   1. Start LocalStack: docker-compose up -d
+#   2. Create buckets: ./create-buckets.sh
 #
-# Step 2: Switch to backend-b.tf
-#   - Rename this file: mv backend-a.tf backend-a.tf.bak
-#   - Rename backend-b.tf.example: mv backend-b.tf.example backend-b.tf
-#   - Run: terraform init -migrate-state
-#   - Answer "yes" to migrate
+# INITIAL STATE IN BUCKET A:
+#   terraform init
+#   terraform apply -auto-approve
+#   aws s3 ls s3://tfstate-bucket-a/ --recursive --endpoint-url http://localhost:4566
 #
-# Step 3: Verify migration
-#   - Run: terraform plan (should show "No changes")
-#   - Check: aws s3 ls s3://tfstate-bucket-b/ --endpoint-url http://localhost:4566
+# MIGRATE TO BUCKET B:
+#   mv backend-a.tf backend-a.tf.bak
+#   mv backend-b.tf.example backend-b.tf
+#   terraform init -migrate-state
+#   (Answer "yes" when prompted)
+#
+# VERIFY MIGRATION:
+#   terraform plan  # Should show "No changes"
+#   aws s3 ls s3://tfstate-bucket-b/ --recursive --endpoint-url http://localhost:4566
 #
 # =====================================================

@@ -2,6 +2,27 @@
 # Migrate state from one S3 bucket to another
 
 # =====================================================
+# CHOOSE YOUR MODE: LocalStack or Real AWS
+# =====================================================
+#
+# LOCALSTACK (Default - Free, no AWS account needed):
+#   - Uses: provider-localstack.tf + backend-a.tf
+#   - Start LocalStack: docker-compose up -d
+#   - Create buckets: ./create-buckets.sh
+#
+# REAL AWS (Requires AWS account):
+#   - Switch provider:
+#       mv provider-localstack.tf provider-localstack.tf.bak
+#       mv provider-aws.tf.example provider-aws.tf
+#   - Switch backend:
+#       mv backend-a.tf backend-a-localstack.tf.bak
+#       mv backend-a-aws.tf.example backend-a.tf
+#   - Create buckets: ./create-buckets.sh aws
+#   - Update backend-a.tf with your bucket name
+#
+# =====================================================
+
+# =====================================================
 # TASK: Migrate state from bucket-a to bucket-b
 # =====================================================
 #
@@ -33,27 +54,34 @@ terraform {
   }
 }
 
-# LocalStack provider configuration
-# For Real AWS: Remove the endpoints, skip_* settings, and use real credentials
-provider "aws" {
-  region     = "us-east-1"
-  access_key = "test"
-  secret_key = "test"
+# =====================================================
+# Provider configuration is in separate files:
+#   - provider-localstack.tf  (for LocalStack)
+#   - provider-aws.tf.example (for Real AWS - rename to use)
+# =====================================================
 
-  endpoints {
-    ec2 = "http://localhost:4566"
-    s3  = "http://localhost:4566"
-    sts = "http://localhost:4566"
-  }
+# =====================================================
+# Variables for flexibility between LocalStack and Real AWS
+# =====================================================
 
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
+variable "ami_id" {
+  description = "AMI ID for the EC2 instance"
+  type        = string
+  default     = "ami-12345678"  # LocalStack default; override for Real AWS
 }
 
-# Simple resources to track in state
+variable "use_localstack" {
+  description = "Set to false when using Real AWS"
+  type        = bool
+  default     = true
+}
+
+# =====================================================
+# Resources to track in state
+# =====================================================
+
 resource "aws_instance" "app" {
-  ami           = "ami-12345678"
+  ami           = var.ami_id
   instance_type = "t2.micro"
 
   tags = {
@@ -64,7 +92,7 @@ resource "aws_instance" "app" {
 }
 
 resource "aws_security_group" "app" {
-  name        = "app-sg"
+  name        = "scenario4-app-sg"
   description = "Security group for backend migration demo"
 
   ingress {
@@ -82,14 +110,20 @@ resource "aws_security_group" "app" {
   }
 
   tags = {
-    Name = "app-sg"
+    Name = "scenario4-app-sg"
   }
 }
 
+# =====================================================
+# Outputs
+# =====================================================
+
 output "instance_id" {
-  value = aws_instance.app.id
+  description = "ID of the EC2 instance"
+  value       = aws_instance.app.id
 }
 
 output "security_group_id" {
-  value = aws_security_group.app.id
+  description = "ID of the security group"
+  value       = aws_security_group.app.id
 }

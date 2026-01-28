@@ -2,6 +2,26 @@
 # Recover from lost or corrupted state file
 
 # =====================================================
+# CHOOSE YOUR MODE: LocalStack or Real AWS
+# =====================================================
+#
+# LOCALSTACK (Default - Free, no AWS account needed):
+#   - Uses: provider-localstack.tf
+#   - Start LocalStack: docker-compose up -d (from repo root)
+#   - Run disaster: ./simulate-disaster.sh
+#
+# REAL AWS (Requires AWS account):
+#   - Switch provider:
+#       mv provider-localstack.tf provider-localstack.tf.bak
+#       mv provider-aws.tf.example provider-aws.tf
+#   - Copy tfvars:
+#       mv terraform.tfvars.aws.example terraform.tfvars
+#   - Update terraform.tfvars with correct AMI ID
+#   - Run disaster: ./simulate-disaster.sh aws
+#
+# =====================================================
+
+# =====================================================
 # TASK: Rebuild state from existing resources
 # =====================================================
 #
@@ -19,6 +39,7 @@
 # 4. Import each existing resource:
 #    terraform import aws_instance.web <INSTANCE_ID>
 #    terraform import aws_security_group.web <SG_ID>
+#    terraform import aws_ebs_volume.data <VOLUME_ID>
 # 5. terraform plan shows "No changes" (state recovered!)
 #
 # =====================================================
@@ -33,22 +54,26 @@ terraform {
   }
 }
 
-# LocalStack provider configuration
-# For Real AWS: Remove the endpoints, skip_* settings, and use real credentials
-provider "aws" {
-  region     = "us-east-1"
-  access_key = "test"
-  secret_key = "test"
+# =====================================================
+# Provider configuration is in separate files:
+#   - provider-localstack.tf  (for LocalStack)
+#   - provider-aws.tf.example (for Real AWS - rename to use)
+# =====================================================
 
-  endpoints {
-    ec2 = "http://localhost:4566"
-    s3  = "http://localhost:4566"
-    sts = "http://localhost:4566"
-  }
+# =====================================================
+# Variables for flexibility between LocalStack and Real AWS
+# =====================================================
 
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
+variable "ami_id" {
+  description = "AMI ID for the EC2 instance"
+  type        = string
+  default     = "ami-recovery-test"  # LocalStack default; override for Real AWS
+}
+
+variable "availability_zone" {
+  description = "Availability zone for EBS volume"
+  type        = string
+  default     = "us-east-1a"
 }
 
 # =====================================================
@@ -57,7 +82,7 @@ provider "aws" {
 # =====================================================
 
 resource "aws_instance" "web" {
-  ami           = "ami-recovery-test"
+  ami           = var.ami_id
   instance_type = "t2.micro"
 
   tags = {
@@ -98,7 +123,7 @@ resource "aws_security_group" "web" {
 }
 
 resource "aws_ebs_volume" "data" {
-  availability_zone = "us-east-1a"
+  availability_zone = var.availability_zone
   size              = 100
   type              = "gp3"
 
@@ -107,6 +132,10 @@ resource "aws_ebs_volume" "data" {
     Environment = "production"
   }
 }
+
+# =====================================================
+# Outputs
+# =====================================================
 
 output "instance_id" {
   description = "ID of the recovered web instance"

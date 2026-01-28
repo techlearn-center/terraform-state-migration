@@ -1,0 +1,64 @@
+# Backend A Configuration - REAL AWS
+# ===================================
+# This is the INITIAL backend for Real AWS - state starts here
+#
+# SETUP:
+#   1. Run: ./create-buckets.sh aws
+#   2. Copy the bucket name from the script output
+#   3. Replace YOUR-BUCKET-A-NAME below with your actual bucket name
+#   4. Rename this file: mv backend-a-aws.tf.example backend-a.tf
+#   5. Delete or rename the LocalStack version: mv backend-a.tf backend-a-localstack.tf.bak
+#
+# ===================================
+
+terraform {
+  backend "s3" {
+    bucket = "YOUR-BUCKET-A-NAME"    # <-- REPLACE with your bucket name from create-buckets.sh
+    key    = "scenario-4/terraform.tfstate"
+    region = "us-east-1"             # <-- Change if using different region
+
+    # Optional but recommended: Enable state locking with DynamoDB
+    # dynamodb_table = "terraform-locks"
+  }
+}
+
+# =====================================================
+# INSTRUCTIONS FOR REAL AWS:
+# =====================================================
+#
+# INITIAL SETUP:
+#   1. Run: ./create-buckets.sh aws
+#      This creates two S3 buckets and outputs their names
+#
+#   2. Update this file with BUCKET A name from script output
+#
+#   3. Activate this backend:
+#      mv backend-a-aws.tf.example backend-a.tf
+#      mv backend-a.tf backend-a-localstack.tf.bak  (backup LocalStack version)
+#
+#   4. Also switch to AWS provider:
+#      mv provider-aws.tf.example provider-aws.tf
+#      mv provider-localstack.tf provider-localstack.tf.bak
+#
+#   5. Initialize and apply:
+#      terraform init
+#      terraform apply -auto-approve
+#
+#   6. Verify state in Bucket A:
+#      aws s3 ls s3://YOUR-BUCKET-A-NAME/ --recursive
+#
+# MIGRATION TO BUCKET B:
+#   1. Update backend-b-aws.tf.example with BUCKET B name
+#   2. Activate Backend B:
+#      mv backend-a.tf backend-a.tf.bak
+#      mv backend-b-aws.tf.example backend-b.tf
+#
+#   3. Migrate state:
+#      terraform init -migrate-state
+#      (Answer "yes" when prompted)
+#
+#   4. Verify migration:
+#      terraform plan                                    # Should show "No changes"
+#      aws s3 ls s3://YOUR-BUCKET-B-NAME/ --recursive   # State is now here
+#
+# =====================================================

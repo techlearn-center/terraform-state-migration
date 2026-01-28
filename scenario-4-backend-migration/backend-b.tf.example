@@ -1,14 +1,21 @@
-# Backend B Configuration
-# This is the TARGET backend - migrate state here
+# Backend B Configuration - LOCALSTACK
+# =====================================
+# This is the TARGET backend for LocalStack - migrate state here
+#
+# FOR REAL AWS: Use backend-b-aws.tf.example instead
+#
+# =====================================
 
 # =====================================================
 # RENAME THIS FILE TO backend-b.tf BEFORE MIGRATING!
 # =====================================================
 #
-# After renaming:
-#   1. Delete or rename backend-a.tf (e.g., backend-a.tf.bak)
-#   2. Run: terraform init -migrate-state
-#   3. Answer "yes" when prompted
+# Steps:
+#   1. mv backend-a.tf backend-a.tf.bak
+#   2. mv backend-b.tf.example backend-b.tf
+#   3. terraform init -migrate-state
+#   4. Answer "yes" when prompted
+#   5. terraform plan (should show "No changes")
 #
 # =====================================================
 
@@ -18,7 +25,7 @@ terraform {
     key    = "scenario-4/terraform.tfstate"
     region = "us-east-1"
 
-    # LocalStack settings (remove for Real AWS)
+    # LocalStack-specific settings
     endpoints = {
       s3 = "http://localhost:4566"
     }

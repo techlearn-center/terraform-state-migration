@@ -1,0 +1,71 @@
+# Backend B Configuration - REAL AWS
+# ===================================
+# This is the TARGET backend for Real AWS - migrate state here
+#
+# SETUP:
+#   1. Run: ./create-buckets.sh aws (if not already done)
+#   2. Copy the BUCKET B name from the script output
+#   3. Replace YOUR-BUCKET-B-NAME below with your actual bucket name
+#   4. Follow migration steps below
+#
+# ===================================
+
+terraform {
+  backend "s3" {
+    bucket = "YOUR-BUCKET-B-NAME"    # <-- REPLACE with your bucket name from create-buckets.sh
+    key    = "scenario-4/terraform.tfstate"
+    region = "us-east-1"             # <-- Change if using different region
+
+    # Optional but recommended: Enable state locking with DynamoDB
+    # dynamodb_table = "terraform-locks"
+  }
+}
+
+# =====================================================
+# MIGRATION INSTRUCTIONS (Real AWS):
+# =====================================================
+#
+# BEFORE YOU START:
+#   - You should have already completed setup with Backend A
+#   - Resources should exist and state should be in Bucket A
+#   - Verify: aws s3 ls s3://YOUR-BUCKET-A-NAME/ --recursive
+#
+# STEP 1: Update this file
+#   - Replace YOUR-BUCKET-B-NAME with actual bucket name
+#
+# STEP 2: Switch backend configuration
+#   mv backend-a.tf backend-a.tf.bak
+#   mv backend-b-aws.tf.example backend-b.tf
+#
+# STEP 3: Migrate state
+#   terraform init -migrate-state
+#
+#   You will see:
+#   "Do you want to copy existing state to the new backend?"
+#   Enter: yes
+#
+# STEP 4: Verify migration succeeded
+#   terraform plan
+#   # Should show: "No changes. Your infrastructure matches the configuration."
+#
+#   aws s3 ls s3://YOUR-BUCKET-B-NAME/ --recursive
+#   # Should show: scenario-4/terraform.tfstate
+#
+# =====================================================
+#
+# TROUBLESHOOTING:
+#
+# Error: "Backend configuration changed"
+#   -> You forgot -migrate-state flag
+#   -> Run: terraform init -migrate-state
+#
+# Error: "bucket does not exist"
+#   -> Bucket name is wrong or bucket wasn't created
+#   -> Run: ./create-buckets.sh aws
+#   -> Check the bucket name in AWS Console
+#
+# State not in new bucket after migration:
+#   -> You may have answered "no" to migration prompt
+#   -> Re-run: terraform init -migrate-state (answer "yes")
+#
+# =====================================================

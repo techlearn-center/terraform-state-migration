@@ -1,0 +1,54 @@
+# Terraform Variables for REAL AWS
+# =================================
+# Rename this file to terraform.tfvars when using Real AWS
+#
+# TO USE:
+#   mv terraform.tfvars.aws.example terraform.tfvars
+#
+# IMPORTANT: The AMI ID here must match what simulate-disaster.sh uses!
+#            The script auto-detects the latest Amazon Linux AMI.
+#            After running ./simulate-disaster.sh aws, check the output
+#            for the AMI ID it used, then update this file to match.
+#
+# =================================
+
+# AMI ID - MUST MATCH the one used by simulate-disaster.sh
+# The script outputs the AMI ID when it runs. Copy it here.
+#
+# Example (us-east-1 Amazon Linux 2023 - may be outdated):
+ami_id = "ami-0c101f26f147fa7fd"  # <-- UPDATE after running simulate-disaster.sh aws
+
+# Availability zone - must match your region
+# The script uses the first AZ in your region
+availability_zone = "us-east-1a"  # <-- UPDATE if using different region
+
+# =====================================================
+# HOW TO USE WITH REAL AWS:
+# =====================================================
+#
+# 1. Switch to AWS provider:
+#    mv provider-localstack.tf provider-localstack.tf.bak
+#    mv provider-aws.tf.example provider-aws.tf
+#
+# 2. Copy this file:
+#    mv terraform.tfvars.aws.example terraform.tfvars
+#
+# 3. Run the disaster simulation:
+#    ./simulate-disaster.sh aws
+#
+# 4. IMPORTANT: Note the AMI ID from the script output!
+#    Look for: "Using AMI: ami-xxxxxxxxxx"
+#    Update ami_id above to match.
+#
+# 5. Run terraform init
+#
+# 6. Import the resources (IDs from resource-ids.txt):
+#    terraform import aws_instance.web <INSTANCE_ID>
+#    terraform import aws_security_group.web <SG_ID>
+#    terraform import aws_ebs_volume.data <VOLUME_ID>
+#
+# 7. If terraform plan shows AMI changes:
+#    - Update ami_id in this file to match the actual instance
+#    - Run: terraform state show aws_instance.web | grep ami
+#
+# =====================================================

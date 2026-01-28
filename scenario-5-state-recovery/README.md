@@ -8,6 +8,17 @@ Your production Terraform state file was accidentally deleted. The resources sti
 
 ---
 
+## Choose Your Mode
+
+This scenario supports **two modes**. Choose based on your situation:
+
+| Mode | Best For | Cost | Requirements |
+|------|----------|------|--------------|
+| **LocalStack** (Default) | Learning, practice | Free | Docker installed |
+| **Real AWS** | Real-world experience | ~$0.01-0.05 | AWS account + credentials |
+
+---
+
 ## Why This Matters
 
 State loss happens in real life:
@@ -95,20 +106,39 @@ RECOVERY USING terraform import:
 
 ---
 
-## Your Task
+## File Structure
 
-### What You'll Do
-
-1. Run a script that creates resources then "loses" the state
-2. Observe how Terraform wants to create duplicates
-3. Import each resource to rebuild state
-4. Verify recovery was successful
+```
+scenario-5-state-recovery/
+|-- main.tf                      # Resources to recover
+|-- provider-localstack.tf       # LocalStack provider (default)
+|-- provider-aws.tf.example      # Real AWS provider (rename to use)
+|-- terraform.tfvars.aws.example # Variables for Real AWS
+|-- simulate-disaster.sh         # Creates resources and "loses" state
+|-- simulate-disaster.ps1        # Windows version
++-- README.md                    # This file
+```
 
 ---
 
-## Step-by-Step Instructions
+## Option A: LocalStack (Free - Recommended for Learning)
 
-### Step 1: Simulate the Disaster
+### Prerequisites
+
+- Docker installed
+- AWS CLI installed
+
+### Step 1: Start LocalStack
+
+```bash
+# From the repository root
+docker-compose up -d
+
+# Verify LocalStack is running
+curl http://localhost:4566/_localstack/health
+```
+
+### Step 2: Simulate the Disaster
 
 ```bash
 cd scenario-5-state-recovery
@@ -117,8 +147,7 @@ cd scenario-5-state-recovery
 chmod +x simulate-disaster.sh
 
 # Run the disaster simulation
-./simulate-disaster.sh           # LocalStack (default)
-# OR
+./simulate-disaster.sh           # Linux/Mac
 .\simulate-disaster.ps1          # Windows PowerShell
 ```
 
@@ -131,7 +160,7 @@ The script creates:
 
 Then it **deletes** the state file, simulating accidental deletion.
 
-### Step 2: Observe the Problem
+### Step 3: Observe the Problem
 
 ```bash
 terraform init
@@ -144,33 +173,20 @@ terraform plan
 Terraform will perform the following actions:
 
   # aws_ebs_volume.data will be created
-  + resource "aws_ebs_volume" "data" {
-      ...
-    }
+  + resource "aws_ebs_volume" "data" { ... }
 
   # aws_instance.web will be created
-  + resource "aws_instance" "web" {
-      ...
-    }
+  + resource "aws_instance" "web" { ... }
 
   # aws_security_group.web will be created
-  + resource "aws_security_group" "web" {
-      ...
-    }
+  + resource "aws_security_group" "web" { ... }
 
 Plan: 3 to add, 0 to change, 0 to destroy.
 ```
 
-**The problem:** Terraform wants to CREATE these resources, but they already exist in AWS!
+**The problem:** Terraform wants to CREATE these resources, but they already exist!
 
-If you ran `terraform apply` now, you would:
-- Create duplicate EC2 instances
-- Get errors on security group (name already exists)
-- Waste money on duplicate resources
-
-### Step 3: Get the Resource IDs
-
-The disaster script saved the IDs to a file:
+### Step 4: Get the Resource IDs
 
 ```bash
 cat resource-ids.txt
@@ -183,25 +199,7 @@ SECURITY_GROUP_ID=sg-0def456abc789012
 VOLUME_ID=vol-0789abc123def456
 ```
 
-**In real life**, you would find these IDs from:
-- AWS Console
-- AWS CLI: `aws ec2 describe-instances`
-- CloudWatch logs
-- Team documentation
-- Tags on resources
-
-### Step 4: Import Each Resource
-
-The `terraform import` command has this syntax:
-```
-terraform import <RESOURCE_ADDRESS> <REAL_RESOURCE_ID>
-```
-
-Where:
-- `<RESOURCE_ADDRESS>` = The name in your .tf file (e.g., `aws_instance.web`)
-- `<REAL_RESOURCE_ID>` = The ID in AWS (e.g., `i-0abc123def456789`)
-
-**Import all three resources:**
+### Step 5: Import Each Resource
 
 ```bash
 # Import the EC2 instance
@@ -214,41 +212,12 @@ terraform import aws_security_group.web <SECURITY_GROUP_ID>
 terraform import aws_ebs_volume.data <VOLUME_ID>
 ```
 
-**Example with real IDs:**
-```bash
-terraform import aws_instance.web i-0abc123def456789
-terraform import aws_security_group.web sg-0def456abc789012
-terraform import aws_ebs_volume.data vol-0789abc123def456
-```
-
-**What you'll see after each import:**
-```
-aws_instance.web: Importing from ID "i-0abc123def456789"...
-aws_instance.web: Import prepared!
-  Prepared aws_instance for import
-aws_instance.web: Refreshing state... [id=i-0abc123def456789]
-
-Import successful!
-
-The resources that were imported are shown above. These resources are now in
-your Terraform state and will henceforth be managed by Terraform.
-```
-
-### Step 5: Verify the Recovery
+### Step 6: Verify the Recovery
 
 ```bash
 # List all resources in state
 terraform state list
-```
 
-Expected output:
-```
-aws_ebs_volume.data
-aws_instance.web
-aws_security_group.web
-```
-
-```bash
 # Check that plan shows no changes
 terraform plan
 ```
@@ -258,7 +227,125 @@ Expected output:
 No changes. Your infrastructure matches the configuration.
 ```
 
-**Congratulations!** You've successfully recovered from state loss!
+---
+
+## Option B: Real AWS
+
+### Prerequisites
+
+- AWS account with billing enabled
+- AWS CLI installed and configured (`aws configure`)
+- Permissions: EC2 (instances, security groups, EBS volumes)
+
+### Step 1: Verify AWS Credentials
+
+```bash
+aws sts get-caller-identity
+```
+
+### Step 2: Switch to AWS Provider
+
+```bash
+cd scenario-5-state-recovery
+
+# Disable LocalStack provider
+mv provider-localstack.tf provider-localstack.tf.bak
+
+# Enable AWS provider
+mv provider-aws.tf.example provider-aws.tf
+```
+
+### Step 3: Configure Variables
+
+```bash
+mv terraform.tfvars.aws.example terraform.tfvars
+```
+
+### Step 4: Simulate the Disaster
+
+```bash
+chmod +x simulate-disaster.sh
+./simulate-disaster.sh aws
+```
+
+**Important:** Note the output! It shows:
+- The AMI ID used
+- The resource IDs created
+- The availability zone
+
+Example output:
+```
+Using AMI: ami-0c101f26f147fa7fd
+
+[Step 1/4] Creating EC2 instance...
+   Instance ID: i-0abc123def456789
+[Step 2/4] Creating Security Group...
+   Security Group ID: sg-0def456abc789012
+[Step 3/4] Creating EBS Volume...
+   Volume ID: vol-0789abc123def456
+[Step 4/4] 'Losing' state file...
+
+Resource IDs saved to: resource-ids.txt
+```
+
+### Step 5: Update terraform.tfvars
+
+Edit `terraform.tfvars` to match the AMI ID from the script output:
+
+```hcl
+ami_id = "ami-0c101f26f147fa7fd"  # Use the AMI from script output!
+availability_zone = "us-east-1a"
+```
+
+### Step 6: Observe the Problem
+
+```bash
+terraform init
+terraform plan
+```
+
+Terraform will show it wants to CREATE 3 resources (but they already exist).
+
+### Step 7: Import Each Resource
+
+Use the IDs from `resource-ids.txt`:
+
+```bash
+# Import the EC2 instance
+terraform import aws_instance.web i-0abc123def456789
+
+# Import the security group
+terraform import aws_security_group.web sg-0def456abc789012
+
+# Import the EBS volume
+terraform import aws_ebs_volume.data vol-0789abc123def456
+```
+
+### Step 8: Handle AMI Mismatch (If Needed)
+
+If `terraform plan` shows AMI changes after import:
+
+```bash
+# Check the actual AMI
+terraform state show aws_instance.web | grep ami
+```
+
+Update `terraform.tfvars` with the correct AMI ID.
+
+### Step 9: Verify the Recovery
+
+```bash
+terraform state list
+terraform plan
+# Should show: "No changes"
+```
+
+### Step 10: Clean Up (Important!)
+
+```bash
+# Destroy resources to avoid charges
+terraform destroy -auto-approve
+```
 
 ---
 
@@ -316,12 +403,9 @@ Sometimes after import, `terraform plan` still shows changes. This means your `m
 
 ### Example: AMI Mismatch
 
-Your main.tf says:
+Your main.tf/tfvars says:
 ```hcl
-resource "aws_instance" "web" {
-  ami           = "ami-old-value"
-  instance_type = "t2.micro"
-}
+ami_id = "ami-old-value"
 ```
 
 But the actual instance uses `ami-real-value`.
@@ -333,12 +417,9 @@ But the actual instance uses `ami-real-value`.
    terraform state show aws_instance.web
    ```
 
-2. Update `main.tf` to match:
+2. Update `terraform.tfvars` (or `main.tf`) to match:
    ```hcl
-   resource "aws_instance" "web" {
-     ami           = "ami-real-value"   # Updated!
-     instance_type = "t2.micro"
-   }
+   ami_id = "ami-real-value"   # Updated!
    ```
 
 3. Verify:
@@ -354,9 +435,10 @@ But the actual instance uses `ami-real-value`.
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `Resource already exists in state` | You imported the same resource twice | `terraform state rm <resource>` then re-import |
-| `Plan shows changes after import` | main.tf doesn't match actual resource | Update main.tf to match `terraform state show` output |
-| `Cannot find resource` | Wrong resource ID | Double-check the ID in AWS Console |
+| `Plan shows changes after import` | main.tf/tfvars doesn't match actual resource | Update to match `terraform state show` output |
+| `Cannot find resource` | Wrong resource ID | Double-check the ID in AWS Console or `resource-ids.txt` |
 | `Resource address does not exist` | Typo in resource name | Check main.tf for the exact resource address |
+| `Error: Inconsistent dependency lock file` | Provider mismatch | Run `terraform init -upgrade` |
 
 ---
 
@@ -365,6 +447,18 @@ But the actual instance uses `ami-real-value`.
 - [ ] All 3 resources imported into state
 - [ ] `terraform state list` shows all resources
 - [ ] `terraform plan` shows "No changes"
+
+---
+
+## Key Commands Reference
+
+| Command | Purpose |
+|---------|---------|
+| `terraform import <addr> <id>` | Import existing resource into state |
+| `terraform state list` | List all resources in state |
+| `terraform state show <addr>` | Show details of a resource |
+| `terraform state rm <addr>` | Remove resource from state (doesn't delete in AWS) |
+| `terraform state pull` | Download state to stdout (for backup) |
 
 ---
 
@@ -398,18 +492,6 @@ Local state files are easily lost. Use remote backends (S3, Terraform Cloud) for
 # Pull state to a backup file
 terraform state pull > state-backup-$(date +%Y%m%d).json
 ```
-
----
-
-## Key Commands Reference
-
-| Command | Purpose |
-|---------|---------|
-| `terraform import <addr> <id>` | Import existing resource into state |
-| `terraform state list` | List all resources in state |
-| `terraform state show <addr>` | Show details of a resource |
-| `terraform state rm <addr>` | Remove resource from state (doesn't delete in AWS) |
-| `terraform state pull` | Download state to stdout (for backup) |
 
 ---
 
