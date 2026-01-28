@@ -1,0 +1,45 @@
+# Terraform Variables for REAL AWS
+# =================================
+# Rename this file to terraform.tfvars when using Real AWS
+#
+# TO USE:
+#   mv terraform.tfvars.aws.example terraform.tfvars
+#
+# IMPORTANT: The AMI ID here must match what setup.sh creates!
+#            Run ./setup.sh aws first, then copy the AMI ID from the output.
+#
+# =================================
+
+# AMI ID - MUST MATCH the one used by setup.sh
+# The script outputs the AMI ID when it runs. Copy it here.
+#
+# Example (us-east-1 Amazon Linux 2023 - may be outdated):
+ami_id = "ami-0c101f26f147fa7fd"  # <-- UPDATE after running ./setup.sh aws
+
+# =====================================================
+# HOW TO USE WITH REAL AWS:
+# =====================================================
+#
+# 1. Switch to AWS provider:
+#    mv provider-localstack.tf provider-localstack.tf.bak
+#    mv provider-aws.tf.example provider-aws.tf
+#
+# 2. Copy this file:
+#    mv terraform.tfvars.aws.example terraform.tfvars
+#
+# 3. Run the setup script to create the "manual" resource:
+#    ./setup.sh aws
+#
+# 4. IMPORTANT: Note the AMI ID from the script output!
+#    Look for: "AMI ID: ami-xxxxxxxxxx"
+#    Update ami_id above to match.
+#
+# 5. Add resource block to main.tf (see README)
+#
+# 6. terraform init
+#
+# 7. terraform import aws_instance.imported <INSTANCE_ID>
+#
+# 8. terraform plan  # Should show "No changes"
+#
+# =====================================================

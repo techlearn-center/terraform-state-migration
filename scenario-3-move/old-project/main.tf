@@ -3,6 +3,20 @@
 # This project has grown too large.
 # Your task: Move database resources to new-project.
 
+# =====================================================
+# CHOOSE YOUR MODE: LocalStack or Real AWS
+# =====================================================
+#
+# LOCALSTACK (Default):
+#   - Uses: provider-localstack.tf
+#
+# REAL AWS:
+#   - Switch provider in BOTH projects:
+#       mv provider-localstack.tf provider-localstack.tf.bak
+#       mv provider-aws.tf.example provider-aws.tf
+#
+# =====================================================
+
 terraform {
   required_version = ">= 1.0.0"
 
@@ -14,23 +28,11 @@ terraform {
   }
 }
 
-# AWS Provider - LocalStack
-provider "aws" {
-  region = "us-east-1"
-
-  access_key = "test"
-  secret_key = "test"
-
-  endpoints {
-    ec2 = "http://localhost:4566"
-    rds = "http://localhost:4566"
-    sts = "http://localhost:4566"
-  }
-
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
-}
+# =====================================================
+# Provider configuration is in separate files:
+#   - provider-localstack.tf  (for LocalStack)
+#   - provider-aws.tf.example (for Real AWS - rename to use)
+# =====================================================
 
 # Data source for AMI
 data "aws_ami" "amazon_linux" {
@@ -48,7 +50,7 @@ data "aws_ami" "amazon_linux" {
 # ============================================
 
 resource "aws_security_group" "web" {
-  name        = "web-sg"
+  name        = "scenario3-web-sg"
   description = "Security group for web servers"
 
   ingress {
@@ -73,7 +75,7 @@ resource "aws_security_group" "web" {
   }
 
   tags = {
-    Name = "web-sg"
+    Name = "scenario3-web-sg"
   }
 }
 
@@ -84,17 +86,20 @@ resource "aws_instance" "web" {
   vpc_security_group_ids = [aws_security_group.web.id]
 
   tags = {
-    Name = "web-server"
+    Name = "scenario3-web-server"
   }
 }
 
 # ============================================
-# DATABASE RESOURCES (TODO: Move to new-project)
+# DATABASE RESOURCES (Move to new-project)
 # ============================================
-# After moving, comment out or remove these resources
+# After moving with terraform state mv:
+#   1. Comment out these resources
+#   2. Comment out the db outputs below
+#   3. Run terraform plan (should show no changes)
 
 resource "aws_security_group" "db" {
-  name        = "db-sg"
+  name        = "scenario3-db-sg"
   description = "Security group for database"
 
   ingress {
@@ -112,12 +117,10 @@ resource "aws_security_group" "db" {
   }
 
   tags = {
-    Name = "db-sg"
+    Name = "scenario3-db-sg"
   }
 }
 
-# Note: RDS not fully supported in LocalStack free tier
-# Using a placeholder for demonstration
 resource "aws_instance" "db" {
   ami           = data.aws_ami.amazon_linux.id
   instance_type = "t2.small"
@@ -125,7 +128,7 @@ resource "aws_instance" "db" {
   vpc_security_group_ids = [aws_security_group.db.id]
 
   tags = {
-    Name = "db-server"
+    Name = "scenario3-db-server"
     Type = "database"
   }
 }
@@ -135,17 +138,22 @@ resource "aws_instance" "db" {
 # ============================================
 
 output "web_instance_id" {
-  value = aws_instance.web.id
-}
-
-output "db_instance_id" {
-  value = aws_instance.db.id
+  description = "ID of the web server instance"
+  value       = aws_instance.web.id
 }
 
 output "web_sg_id" {
-  value = aws_security_group.web.id
+  description = "ID of the web security group"
+  value       = aws_security_group.web.id
+}
+
+# Comment these out after moving db resources:
+output "db_instance_id" {
+  description = "ID of the database instance"
+  value       = aws_instance.db.id
 }
 
 output "db_sg_id" {
-  value = aws_security_group.db.id
+  description = "ID of the database security group"
+  value       = aws_security_group.db.id
 }

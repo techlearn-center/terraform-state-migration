@@ -3,6 +3,23 @@
 # This project currently uses local state.
 # Your task: Migrate it to S3 remote state.
 
+# =====================================================
+# CHOOSE YOUR MODE: LocalStack or Real AWS
+# =====================================================
+#
+# LOCALSTACK (Default - Free, no AWS account needed):
+#   - Uses: provider-localstack.tf
+#   - Start LocalStack: docker-compose up -d
+#
+# REAL AWS (Requires AWS account):
+#   - Switch provider:
+#       mv provider-localstack.tf provider-localstack.tf.bak
+#       mv provider-aws.tf.example provider-aws.tf
+#   - Create bucket: ./create-bucket.sh aws
+#   - Use backend-aws.tf.example for the S3 backend config
+#
+# =====================================================
+
 terraform {
   required_version = ">= 1.0.0"
 
@@ -14,25 +31,11 @@ terraform {
   }
 }
 
-# AWS Provider - LocalStack
-provider "aws" {
-  region = "us-east-1"
-
-  # LocalStack configuration (remove for real AWS)
-  access_key = "test"
-  secret_key = "test"
-
-  endpoints {
-    ec2 = "http://localhost:4566"
-    s3  = "http://localhost:4566"
-    sts = "http://localhost:4566"
-  }
-
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
-  s3_use_path_style           = true
-}
+# =====================================================
+# Provider configuration is in separate files:
+#   - provider-localstack.tf  (for LocalStack)
+#   - provider-aws.tf.example (for Real AWS - rename to use)
+# =====================================================
 
 # Data source for AMI
 data "aws_ami" "amazon_linux" {
@@ -45,9 +48,12 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# Security Group
+# =====================================================
+# Resources
+# =====================================================
+
 resource "aws_security_group" "web" {
-  name        = "web-sg-migration-demo"
+  name        = "scenario1-web-sg"
   description = "Security group for migration demo"
 
   ingress {
@@ -65,12 +71,11 @@ resource "aws_security_group" "web" {
   }
 
   tags = {
-    Name    = "web-sg-migration-demo"
+    Name    = "scenario1-web-sg"
     Project = "state-migration"
   }
 }
 
-# EC2 Instance
 resource "aws_instance" "web" {
   ami           = data.aws_ami.amazon_linux.id
   instance_type = "t2.micro"
@@ -78,16 +83,21 @@ resource "aws_instance" "web" {
   vpc_security_group_ids = [aws_security_group.web.id]
 
   tags = {
-    Name    = "web-server-migration-demo"
+    Name    = "scenario1-web-server"
     Project = "state-migration"
   }
 }
 
+# =====================================================
 # Outputs
+# =====================================================
+
 output "instance_id" {
-  value = aws_instance.web.id
+  description = "ID of the EC2 instance"
+  value       = aws_instance.web.id
 }
 
 output "security_group_id" {
-  value = aws_security_group.web.id
+  description = "ID of the security group"
+  value       = aws_security_group.web.id
 }

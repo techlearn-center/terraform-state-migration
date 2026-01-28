@@ -2,6 +2,20 @@
 # ======================================
 # Database resources will be moved here from old-project.
 
+# =====================================================
+# CHOOSE YOUR MODE: LocalStack or Real AWS
+# =====================================================
+#
+# LOCALSTACK (Default):
+#   - Uses: provider-localstack.tf
+#
+# REAL AWS:
+#   - Switch provider in BOTH projects:
+#       mv provider-localstack.tf provider-localstack.tf.bak
+#       mv provider-aws.tf.example provider-aws.tf
+#
+# =====================================================
+
 terraform {
   required_version = ">= 1.0.0"
 
@@ -13,23 +27,11 @@ terraform {
   }
 }
 
-# AWS Provider - LocalStack
-provider "aws" {
-  region = "us-east-1"
-
-  access_key = "test"
-  secret_key = "test"
-
-  endpoints {
-    ec2 = "http://localhost:4566"
-    rds = "http://localhost:4566"
-    sts = "http://localhost:4566"
-  }
-
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
-}
+# =====================================================
+# Provider configuration is in separate files:
+#   - provider-localstack.tf  (for LocalStack)
+#   - provider-aws.tf.example (for Real AWS - rename to use)
+# =====================================================
 
 # Data source for AMI
 data "aws_ami" "amazon_linux" {
@@ -43,20 +45,30 @@ data "aws_ami" "amazon_linux" {
 }
 
 # ============================================
-# DATABASE RESOURCES (TODO: Add after moving from old-project)
+# DATABASE RESOURCES
 # ============================================
+# After moving state from old-project:
+#   1. Uncomment these resources
+#   2. Uncomment the outputs below
+#   3. Run terraform plan (should show no changes)
 #
-# After moving state, add these resource blocks:
-#
+# Move commands (run from old-project directory):
+#   terraform state mv -state-out=../new-project/terraform.tfstate \
+#     aws_security_group.db aws_security_group.db
+#   terraform state mv -state-out=../new-project/terraform.tfstate \
+#     aws_instance.db aws_instance.db
+
+# TODO: Uncomment after moving state from old-project
+
 # resource "aws_security_group" "db" {
-#   name        = "db-sg"
+#   name        = "scenario3-db-sg"
 #   description = "Security group for database"
 #
 #   ingress {
-#     from_port       = 3306
-#     to_port         = 3306
-#     protocol        = "tcp"
-#     security_groups = ["<web-sg-id>"]  # Reference the web SG from old-project
+#     from_port   = 3306
+#     to_port     = 3306
+#     protocol    = "tcp"
+#     cidr_blocks = ["10.0.0.0/8"]  # Update as needed
 #   }
 #
 #   egress {
@@ -67,10 +79,10 @@ data "aws_ami" "amazon_linux" {
 #   }
 #
 #   tags = {
-#     Name = "db-sg"
+#     Name = "scenario3-db-sg"
 #   }
 # }
-#
+
 # resource "aws_instance" "db" {
 #   ami           = data.aws_ami.amazon_linux.id
 #   instance_type = "t2.small"
@@ -78,7 +90,7 @@ data "aws_ami" "amazon_linux" {
 #   vpc_security_group_ids = [aws_security_group.db.id]
 #
 #   tags = {
-#     Name = "db-server"
+#     Name = "scenario3-db-server"
 #     Type = "database"
 #   }
 # }
@@ -88,10 +100,13 @@ data "aws_ami" "amazon_linux" {
 # ============================================
 
 # TODO: Uncomment after moving resources
+
 # output "db_instance_id" {
-#   value = aws_instance.db.id
+#   description = "ID of the database instance"
+#   value       = aws_instance.db.id
 # }
-#
+
 # output "db_sg_id" {
-#   value = aws_security_group.db.id
+#   description = "ID of the database security group"
+#   value       = aws_security_group.db.id
 # }

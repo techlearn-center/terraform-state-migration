@@ -1,0 +1,34 @@
+# AWS Provider - REAL AWS Configuration
+# ======================================
+# Use this for Real AWS (requires AWS account and credentials)
+#
+# PREREQUISITES:
+#   1. AWS CLI installed and configured: aws configure
+#   2. Valid AWS credentials with EC2 and S3 permissions
+#   3. Run: aws sts get-caller-identity (to verify credentials)
+#
+# TO ACTIVATE:
+#   mv provider-localstack.tf provider-localstack.tf.bak
+#   mv provider-aws.tf.example provider-aws.tf
+#
+# ======================================
+
+provider "aws" {
+  region = "us-east-1"    # Change to your preferred region
+
+  # AWS credentials are read from:
+  #   1. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+  #   2. AWS credentials file (~/.aws/credentials)
+  #   3. IAM instance profile (if running on EC2)
+  #
+  # Do NOT hardcode credentials here!
+
+  default_tags {
+    tags = {
+      Environment = "learning"
+      Project     = "terraform-state-migration"
+      Scenario    = "1-local-to-remote"
+      ManagedBy   = "terraform"
+    }
+  }
+}

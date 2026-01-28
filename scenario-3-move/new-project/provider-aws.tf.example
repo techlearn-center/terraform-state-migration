@@ -1,0 +1,30 @@
+# AWS Provider - REAL AWS Configuration
+# ======================================
+# Use this for Real AWS (requires AWS account and credentials)
+#
+# PREREQUISITES:
+#   1. AWS CLI installed and configured: aws configure
+#   2. Valid AWS credentials with EC2 permissions
+#   3. Run: aws sts get-caller-identity (to verify credentials)
+#
+# TO ACTIVATE:
+#   mv provider-localstack.tf provider-localstack.tf.bak
+#   mv provider-aws.tf.example provider-aws.tf
+#
+# IMPORTANT: Do the same in ../old-project/
+#
+# ======================================
+
+provider "aws" {
+  region = "us-east-1"    # Change to your preferred region
+
+  default_tags {
+    tags = {
+      Environment = "learning"
+      Project     = "terraform-state-migration"
+      Scenario    = "3-move"
+      SubProject  = "new-project"
+      ManagedBy   = "terraform"
+    }
+  }
+}

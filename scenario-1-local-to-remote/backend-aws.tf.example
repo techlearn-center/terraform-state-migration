@@ -1,0 +1,53 @@
+# Backend Configuration - REAL AWS
+# =================================
+# S3 backend for storing Terraform state in Real AWS
+#
+# SETUP:
+#   1. Run: ./create-bucket.sh aws
+#   2. Copy the bucket name from the script output
+#   3. Replace YOUR-BUCKET-NAME below with your actual bucket name
+#   4. Rename this file: mv backend-aws.tf.example backend.tf
+#   5. Remove or rename the LocalStack backend.tf if it exists
+#
+# =================================
+
+terraform {
+  backend "s3" {
+    bucket  = "YOUR-BUCKET-NAME"  # <-- REPLACE with bucket name from create-bucket.sh
+    key     = "scenario-1/terraform.tfstate"
+    region  = "us-east-1"         # <-- Change if using different region
+    encrypt = true
+
+    # Optional but recommended: Enable state locking with DynamoDB
+    # dynamodb_table = "terraform-locks"
+  }
+}
+
+# =====================================================
+# MIGRATION INSTRUCTIONS (Real AWS):
+# =====================================================
+#
+# STEP 1: Create resources with LOCAL state first
+#   terraform init
+#   terraform apply -auto-approve
+#
+# STEP 2: Create the S3 bucket
+#   ./create-bucket.sh aws
+#   (Note the bucket name from output)
+#
+# STEP 3: Update this file
+#   Replace YOUR-BUCKET-NAME with actual bucket name
+#
+# STEP 4: Activate this backend
+#   mv backend.tf backend-localstack.tf.bak  # if exists
+#   mv backend-aws.tf.example backend.tf
+#
+# STEP 5: Migrate state
+#   terraform init -migrate-state
+#   (Answer "yes" when prompted)
+#
+# STEP 6: Verify migration
+#   terraform plan  # Should show "No changes"
+#   aws s3 ls s3://YOUR-BUCKET-NAME/ --recursive
+#
+# =====================================================
