@@ -1,511 +1,336 @@
-# Scenario 5: State Recovery
+# Scenario 5: State Recovery (Disaster Recovery)
 
-## The Scenario
+## What is This Scenario About?
 
-Your production Terraform state file was accidentally deleted. The resources still exist in AWS, but Terraform doesn't know about them.
+**The Problem:** Your production Terraform state file was accidentally deleted. The servers, security groups, and storage volumes are still running in AWS, but Terraform has no memory of them. If you run `terraform apply`, Terraform will try to create **duplicate** resources because it thinks nothing exists. You need to rebuild the state file from scratch without touching the running infrastructure.
 
-**Your mission:** Rebuild the state file by importing all existing resources.
+**The Solution:** Use `terraform import` to re-import each existing resource back into a fresh state file, effectively reconstructing Terraform's "memory" of the infrastructure.
 
----
-
-## Choose Your Mode
-
-This scenario supports **two modes**. Choose based on your situation:
-
-| Mode | Best For | Cost | Requirements |
-|------|----------|------|--------------|
-| **LocalStack** (Default) | Learning, practice | Free | Docker installed |
-| **Real AWS** | Real-world experience | ~$0.01-0.05 | AWS account + credentials |
+**Real-World Example:** A junior engineer accidentally deleted the S3 bucket containing the production state file. The company's 50+ production servers are still running, but Terraform can't manage them anymore. You need to recover the state before the next deployment, or the team will have to manually manage everything.
 
 ---
 
-## Why This Matters
+## Learning Objectives
 
-State loss happens in real life:
-- Someone deleted `terraform.tfstate` thinking it was temporary
-- S3 bucket with state was accidentally removed
-- State file corruption after a failed migration
-- New team member runs `terraform apply` without state
+By completing this scenario, you will:
 
-Without recovery skills, teams often:
-- Re-create resources (causes downtime)
-- Manually edit state (dangerous)
-- Abandon Terraform for those resources
+- [ ] Understand why state loss is a critical incident
+- [ ] Know how to identify existing AWS resources that need to be imported
+- [ ] Be able to import multiple resource types (EC2, Security Group, EBS Volume)
+- [ ] Know how to update Terraform code to match real infrastructure
+- [ ] Understand disaster recovery procedures for Terraform state
+
+**After this scenario, you should be able to answer:**
+- "What happens when you lose your Terraform state file?"
+- "How do you rebuild state from existing infrastructure?"
+- "Why does Terraform want to CREATE resources when state is lost?"
+- "How would you prevent state loss in production?"
 
 ---
 
-## Understanding the Problem
+## Prerequisites
 
-### What is Terraform State?
+- Docker Desktop running (for LocalStack) OR AWS account configured (for Real AWS)
+- Terraform CLI installed
+- You are inside the `scenario-5-state-recovery/` directory
 
-Terraform state is the **source of truth** that maps your configuration to real resources:
+---
 
-```
-+-------------------+          +-------------------+          +-------------------+
-|   main.tf         |          |   State File      |          |   AWS Resources   |
-|   (Your Code)     |          | (terraform.tfstate)|         |   (Reality)       |
-+-------------------+          +-------------------+          +-------------------+
-|                   |          |                   |          |                   |
-| resource "aws_    |  <---->  | aws_instance.web  |  <---->  | i-0abc123def456   |
-|   instance" "web" |          | = i-0abc123def456 |          |                   |
-|                   |          |                   |          |                   |
-+-------------------+          +-------------------+          +-------------------+
+## Understanding the Disaster
 
-        CODE             links to          STATE         links to         REALITY
-```
-
-### What Happens When State is Lost?
+Here's what happens when state is lost:
 
 ```
 BEFORE DISASTER:
-================
+  main.tf → defines 3 resources
+  terraform.tfstate → tracks 3 resources (instance, SG, volume)
+  AWS → 3 resources running
 
-  main.tf                    State                      AWS
-  +----------+          +-------------+          +----------------+
-  | instance |  <---->  | instance =  |  <---->  | i-0abc123...   |
-  | "web"    |          | i-0abc123   |          | (running)      |
-  +----------+          +-------------+          +----------------+
+  terraform plan → "No changes" (everything matches)
 
+AFTER DISASTER (state deleted):
+  main.tf → still defines 3 resources
+  terraform.tfstate → GONE / EMPTY
+  AWS → 3 resources STILL running
 
-AFTER DISASTER (State Deleted):
-===============================
-
-  main.tf                    State                      AWS
-  +----------+          +-------------+          +----------------+
-  | instance |          |             |          | i-0abc123...   |
-  | "web"    |  --X-->  |   EMPTY!    |  --X-->  | (still there!) |
-  +----------+          +-------------+          +----------------+
-
-  Terraform thinks:                    Reality:
-  "I need to CREATE                    "Instance already
-   aws_instance.web"                    exists in AWS!"
-
-  Result: terraform apply would try to create a DUPLICATE instance!
+  terraform plan → "3 to add" (Terraform thinks nothing exists!)
+  terraform apply → would CREATE DUPLICATES (BAD!)
 ```
 
-### The Recovery Process
-
-```
-RECOVERY USING terraform import:
-================================
-
-  Step 1: You have the resource ID from AWS (i-0abc123...)
-
-  Step 2: Run: terraform import aws_instance.web i-0abc123...
-
-  Step 3: State is rebuilt!
-
-  main.tf                    State                      AWS
-  +----------+          +-------------+          +----------------+
-  | instance |  <---->  | instance =  |  <---->  | i-0abc123...   |
-  | "web"    |          | i-0abc123   |          | (running)      |
-  +----------+          +-------------+          +----------------+
-
-  Now terraform plan shows: "No changes" (state matches reality!)
-```
+**The fix:** Import each existing resource back into state so Terraform knows about them again.
 
 ---
 
-## File Structure
+## Step-by-Step Instructions
 
-```
-scenario-5-state-recovery/
-|-- main.tf                      # Resources to recover
-|-- provider-localstack.tf       # LocalStack provider (default)
-|-- provider-aws.tf.example      # Real AWS provider (rename to use)
-|-- terraform.tfvars.aws.example # Variables for Real AWS
-|-- simulate-disaster.sh         # Creates resources and "loses" state
-|-- simulate-disaster.ps1        # Windows version
-+-- README.md                    # This file
-```
-
----
-
-## Option A: LocalStack (Free - Recommended for Learning)
-
-### Prerequisites
-
-- Docker installed
-- AWS CLI installed
-
-### Step 1: Start LocalStack
+### Step 1: Navigate to the Scenario Directory
 
 ```bash
-# From the repository root
-docker-compose up -d
-
-# Verify LocalStack is running
-curl http://localhost:4566/_localstack/health
+cd scenario-5-state-recovery
 ```
 
 ### Step 2: Simulate the Disaster
 
-```bash
-cd scenario-5-state-recovery
+The disaster script creates real resources in AWS, then deletes the state file - leaving "orphaned" resources that Terraform doesn't know about.
 
-# Make script executable (Linux/Mac)
+```bash
+# Make the script executable
 chmod +x simulate-disaster.sh
 
 # Run the disaster simulation
-./simulate-disaster.sh           # Linux/Mac
-.\simulate-disaster.ps1          # Windows PowerShell
+./simulate-disaster.sh           # For LocalStack (default)
+# OR
+./simulate-disaster.sh aws       # For Real AWS
 ```
 
-The script creates:
-| Resource | Name |
-|----------|------|
-| EC2 Instance | `recovery-web-server` |
-| Security Group | `recovery-web-sg` |
-| EBS Volume | `recovery-data-volume` |
+**What does `simulate-disaster.sh` do? (Line by line)**
 
-Then it **deletes** the state file, simulating accidental deletion.
+1. **Creates an EC2 instance** using the AWS CLI (not Terraform):
+   - Runs `aws ec2 run-instances` to launch a `t2.micro` instance
+   - Tags it with `Name=recovery-web-server`
+   - This simulates existing production infrastructure
 
-### Step 3: Observe the Problem
+2. **Creates a Security Group** using the AWS CLI:
+   - Runs `aws ec2 create-security-group` named `recovery-web-sg`
+   - Adds ingress rules for ports 80 (HTTP) and 443 (HTTPS)
+   - This simulates the firewall rules protecting the server
+
+3. **Creates an EBS Volume** using the AWS CLI:
+   - Runs `aws ec2 create-volume` with 100GB, gp3 type
+   - Tags it with `Name=recovery-data-volume`
+   - This simulates a data storage volume
+
+4. **Deletes the state file** (`rm -f terraform.tfstate`):
+   - This is the "disaster" - Terraform's memory is wiped
+   - The resources are still running in AWS, but Terraform doesn't know
+
+5. **Outputs the Resource IDs** and saves them to `resource-ids.txt`:
+   - You'll need these IDs to import the resources back
+
+**Save the Resource IDs from the output!** You'll see:
+```
+Resource IDs to import:
+  aws_instance.web       -> i-0abc123def456
+  aws_security_group.web -> sg-0def789abc123
+  aws_ebs_volume.data    -> vol-0ghi456jkl789
+```
+
+### Step 3: See the Problem
 
 ```bash
+# Initialize Terraform (with an empty state)
 terraform init
+
+# See what Terraform THINKS needs to happen
 terraform plan
 ```
 
-**What you'll see:**
+**What does `terraform plan` show?**
+- **"3 to add"** - Terraform wants to CREATE 3 new resources
+- But these resources already exist in AWS!
+- If you ran `terraform apply` now, it would try to create duplicates
+- This is why we need to import instead
 
-```
-Terraform will perform the following actions:
-
-  # aws_ebs_volume.data will be created
-  + resource "aws_ebs_volume" "data" { ... }
-
-  # aws_instance.web will be created
-  + resource "aws_instance" "web" { ... }
-
-  # aws_security_group.web will be created
-  + resource "aws_security_group" "web" { ... }
-
-Plan: 3 to add, 0 to change, 0 to destroy.
-```
-
-**The problem:** Terraform wants to CREATE these resources, but they already exist!
-
-### Step 4: Get the Resource IDs
+### Step 4: Import the EC2 Instance
 
 ```bash
-cat resource-ids.txt
-```
-
-Output example:
-```
-INSTANCE_ID=i-0abc123def456789
-SECURITY_GROUP_ID=sg-0def456abc789012
-VOLUME_ID=vol-0789abc123def456
-```
-
-### Step 5: Import Each Resource
-
-```bash
-# Import the EC2 instance
+# Import the existing EC2 instance
 terraform import aws_instance.web <INSTANCE_ID>
+```
+*(Replace `<INSTANCE_ID>` with the actual Instance ID from Step 2, like `i-0abc123def456`)*
 
-# Import the security group
+**What does this command do?**
+- `aws_instance.web` - The resource address in your `main.tf` code
+- `<INSTANCE_ID>` - The real AWS instance ID (from the disaster script output or `resource-ids.txt`)
+- Terraform contacts AWS, reads all the instance's attributes, and stores them in the state file
+- Now Terraform "remembers" this instance
+
+### Step 5: Import the Security Group
+
+```bash
+# Import the existing security group
 terraform import aws_security_group.web <SECURITY_GROUP_ID>
+```
+*(Replace `<SECURITY_GROUP_ID>` with the actual SG ID from Step 2, like `sg-0def789abc123`)*
 
-# Import the EBS volume
+**What does this command do?**
+- Same concept as Step 4, but for the security group
+- Terraform reads the security group's name, description, rules, and tags from AWS
+- Stores all attributes in the state file
+
+### Step 6: Import the EBS Volume
+
+```bash
+# Import the existing EBS volume
 terraform import aws_ebs_volume.data <VOLUME_ID>
 ```
+*(Replace `<VOLUME_ID>` with the actual Volume ID from Step 2, like `vol-0ghi456jkl789`)*
 
-### Step 6: Verify the Recovery
+**What does this command do?**
+- Same concept - imports the EBS volume into state
+- Terraform reads the volume's size, type, availability zone, and tags from AWS
+
+### Step 7: View Imported Attributes
+
+After importing all 3 resources, inspect them to ensure your `main.tf` matches:
 
 ```bash
-# List all resources in state
-terraform state list
+# View each imported resource's attributes
+terraform state show aws_instance.web
+terraform state show aws_security_group.web
+terraform state show aws_ebs_volume.data
+```
 
-# Check that plan shows no changes
+**What does `terraform state show` tell you?**
+- Shows ALL attributes Terraform learned from AWS
+- Compare these with your `main.tf` - they should match
+- If they don't match, you'll need to update `main.tf` (see Step 8)
+
+### Step 8: Update main.tf if Needed
+
+If `terraform plan` shows changes after import, it means your `main.tf` doesn't perfectly match the actual resources. Common things to fix:
+
+- **`ami`** in `aws_instance.web` - Must match the actual AMI ID from `terraform state show`
+- **`availability_zone`** in `aws_ebs_volume.data` - Must match the actual AZ
+- **`tags`** - Must match exactly (including capitalization)
+- **Security group rules** - ingress/egress rules must match exactly
+
+```bash
+# Check what terraform state show reports for each resource
+terraform state show aws_instance.web
+# Look for: ami = "ami-xxxxxxxx"
+# Update main.tf if different
+```
+
+### Step 9: Verify Recovery
+
+```bash
+# Verify ALL resources are recovered
 terraform plan
 ```
 
-Expected output:
-```
-No changes. Your infrastructure matches the configuration.
-```
+**Expected output:** "No changes. Your infrastructure matches the configuration."
+
+If you see "No changes" - **congratulations!** You've successfully recovered from a state disaster. All 3 resources are back under Terraform management without recreating anything.
+
+If changes still appear, run `terraform state show` for the affected resource and update `main.tf` to match the exact values.
 
 ---
 
-## Option B: Real AWS
+## Collecting Evidence
 
-### Prerequisites
-
-- AWS account with billing enabled
-- AWS CLI installed and configured (`aws configure`)
-- Permissions: EC2 (instances, security groups, EBS volumes)
-
-### Step 1: Verify AWS Credentials
+Save proof that you completed this scenario:
 
 ```bash
-aws sts get-caller-identity
+# Create the evidence directory if it doesn't exist
+mkdir -p ../evidence
+
+# Save the terraform plan output (proves "No changes" after recovery)
+terraform plan -no-color > ../evidence/scenario5-plan.txt
+
+# Save the state list (proves all 3 resources are tracked)
+terraform state list > ../evidence/scenario5-state.txt
+
+# Save detailed state for each resource
+terraform state show aws_instance.web > ../evidence/scenario5-instance.txt
+terraform state show aws_security_group.web > ../evidence/scenario5-sg.txt
+terraform state show aws_ebs_volume.data > ../evidence/scenario5-volume.txt
 ```
 
-### Step 2: Switch to AWS Provider
+**What are these evidence commands doing?**
+- Saves plan output proving infrastructure was recovered without changes
+- Saves state list proving all 3 resources are tracked in the new state
+- Saves detailed attributes for each resource as proof of successful import
 
+---
+
+## Cleanup
+
+### For LocalStack:
 ```bash
-cd scenario-5-state-recovery
-
-# Disable LocalStack provider
-mv provider-localstack.tf provider-localstack.tf.bak
-
-# Enable AWS provider
-mv provider-aws.tf.example provider-aws.tf
-```
-
-### Step 3: Configure Variables
-
-```bash
-mv terraform.tfvars.aws.example terraform.tfvars
-```
-
-### Step 4: Simulate the Disaster
-
-```bash
-chmod +x simulate-disaster.sh
-./simulate-disaster.sh aws
-```
-
-**Important:** Note the output! It shows:
-- The AMI ID used
-- The resource IDs created
-- The availability zone
-
-Example output:
-```
-Using AMI: ami-0c101f26f147fa7fd
-
-[Step 1/4] Creating EC2 instance...
-   Instance ID: i-0abc123def456789
-[Step 2/4] Creating Security Group...
-   Security Group ID: sg-0def456abc789012
-[Step 3/4] Creating EBS Volume...
-   Volume ID: vol-0789abc123def456
-[Step 4/4] 'Losing' state file...
-
-Resource IDs saved to: resource-ids.txt
-```
-
-### Step 5: Update terraform.tfvars
-
-Edit `terraform.tfvars` to match the AMI ID from the script output:
-
-```hcl
-ami_id = "ami-0c101f26f147fa7fd"  # Use the AMI from script output!
-availability_zone = "us-east-1a"
-```
-
-### Step 6: Observe the Problem
-
-```bash
-terraform init
-terraform plan
-```
-
-Terraform will show it wants to CREATE 3 resources (but they already exist).
-
-### Step 7: Import Each Resource
-
-Use the IDs from `resource-ids.txt`:
-
-```bash
-# Import the EC2 instance
-terraform import aws_instance.web i-0abc123def456789
-
-# Import the security group
-terraform import aws_security_group.web sg-0def456abc789012
-
-# Import the EBS volume
-terraform import aws_ebs_volume.data vol-0789abc123def456
-```
-
-### Step 8: Handle AMI Mismatch (If Needed)
-
-If `terraform plan` shows AMI changes after import:
-
-```bash
-# Check the actual AMI
-terraform state show aws_instance.web | grep ami
-```
-
-Update `terraform.tfvars` with the correct AMI ID.
-
-### Step 9: Verify the Recovery
-
-```bash
-terraform state list
-terraform plan
-# Should show: "No changes"
-```
-
-### Step 10: Clean Up (Important!)
-
-```bash
-# Destroy resources to avoid charges
+# Destroy all resources
 terraform destroy -auto-approve
 ```
 
----
-
-## Understanding What Import Does
-
-### Before Import
-
-```
-terraform.tfstate = empty (or doesn't exist)
-
-aws_instance.web:
-  State: NOT TRACKED
-  AWS:   EXISTS (i-0abc123...)
-```
-
-### The Import Command
-
+### For Real AWS:
 ```bash
-terraform import aws_instance.web i-0abc123...
+# IMPORTANT: Destroy resources to stop billing!
+terraform destroy -auto-approve
 ```
 
-This tells Terraform:
-> "The resource `aws_instance.web` in my config corresponds to `i-0abc123...` in AWS.
-> Please add this mapping to my state file."
-
-### After Import
-
-```
-terraform.tfstate now contains:
-{
-  "resources": [
-    {
-      "type": "aws_instance",
-      "name": "web",
-      "instances": [
-        {
-          "attributes": {
-            "id": "i-0abc123...",
-            "ami": "ami-12345...",
-            "instance_type": "t2.micro",
-            ...
-          }
-        }
-      ]
-    }
-  ]
-}
-```
+**What does `terraform destroy` do here?**
+- Since all resources are now in the state (thanks to import), Terraform can destroy them
+- Terminates the EC2 instance
+- Deletes the security group
+- Deletes the EBS volume
+- Without the recovery (import), you'd have to manually delete these in the AWS Console!
 
 ---
 
-## Handling Import Mismatches
+## Self-Reflection Questions
 
-Sometimes after import, `terraform plan` still shows changes. This means your `main.tf` doesn't exactly match the actual resource attributes.
+After completing this scenario, take a few minutes to reflect:
 
-### Example: AMI Mismatch
+1. **What was this scenario about?**
+   - What does it mean to "lose" Terraform state?
+   - Why is state loss considered a critical incident?
+   - What would happen if you ran `terraform apply` with lost state?
 
-Your main.tf/tfvars says:
-```hcl
-ami_id = "ami-old-value"
-```
+2. **What did I learn?**
+   - How do you rebuild a state file from existing infrastructure?
+   - How many resources did you import, and what types were they?
+   - What information do you need to import a resource? (Resource type, name, and AWS ID)
+   - Why might you need to update `main.tf` after importing?
 
-But the actual instance uses `ami-real-value`.
+3. **Did I collect evidence?**
+   - Did I save the plan output showing "No changes" after recovery?
+   - Did I save the state list showing all 3 recovered resources?
 
-**How to fix:**
+4. **Could I do this in a real emergency?**
+   - How would you find the Resource IDs of existing resources in AWS without a script?
+     - `aws ec2 describe-instances`, `aws ec2 describe-security-groups`, `aws ec2 describe-volumes`
+   - What if you had 50 resources to import instead of 3?
+   - How long would this take for a production environment with hundreds of resources?
 
-1. Check what was imported:
-   ```bash
-   terraform state show aws_instance.web
-   ```
+5. **How would you PREVENT this in production?**
+   - Enable S3 versioning on the state bucket (recover previous versions)
+   - Enable MFA Delete on the state bucket (require multi-factor auth to delete)
+   - Use DynamoDB locking (prevent concurrent writes)
+   - Set up regular state backups (`terraform state pull > backup.json`)
+   - Use IAM policies to restrict who can delete the state bucket
+   - Enable S3 Object Lock for compliance
 
-2. Update `terraform.tfvars` (or `main.tf`) to match:
-   ```hcl
-   ami_id = "ami-real-value"   # Updated!
-   ```
-
-3. Verify:
-   ```bash
-   terraform plan
-   # Should now show: "No changes"
-   ```
-
----
-
-## Common Errors and Solutions
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `Resource already exists in state` | You imported the same resource twice | `terraform state rm <resource>` then re-import |
-| `Plan shows changes after import` | main.tf/tfvars doesn't match actual resource | Update to match `terraform state show` output |
-| `Cannot find resource` | Wrong resource ID | Double-check the ID in AWS Console or `resource-ids.txt` |
-| `Resource address does not exist` | Typo in resource name | Check main.tf for the exact resource address |
-| `Error: Inconsistent dependency lock file` | Provider mismatch | Run `terraform init -upgrade` |
+**Write a brief report** in `../evidence/my-learning-report.md` documenting your answers.
 
 ---
 
 ## Success Criteria
 
-- [ ] All 3 resources imported into state
-- [ ] `terraform state list` shows all resources
-- [ ] `terraform plan` shows "No changes"
+- [ ] Disaster simulated - resources exist but state is gone (Step 2)
+- [ ] `terraform plan` shows "3 to add" before import (Step 3)
+- [ ] All 3 resources imported (`aws_instance.web`, `aws_security_group.web`, `aws_ebs_volume.data`) (Steps 4-6)
+- [ ] `terraform state list` shows all 3 resources (Step 7)
+- [ ] `main.tf` updated if needed to match imported attributes (Step 8)
+- [ ] `terraform plan` shows "No changes" (Step 9)
+- [ ] Evidence files saved in `../evidence/` directory
 
 ---
 
-## Key Commands Reference
+## Tips
 
-| Command | Purpose |
-|---------|---------|
-| `terraform import <addr> <id>` | Import existing resource into state |
-| `terraform state list` | List all resources in state |
-| `terraform state show <addr>` | Show details of a resource |
-| `terraform state rm <addr>` | Remove resource from state (doesn't delete in AWS) |
-| `terraform state pull` | Download state to stdout (for backup) |
+1. **Forgot the Resource IDs?** Check `resource-ids.txt` in this directory - the script saved them
+2. **Plan shows changes after import?** Run `terraform state show <resource>` and copy the exact attribute values to `main.tf`
+3. **Import failed?** Make sure the resource address matches your `main.tf` exactly (e.g., `aws_instance.web` not `aws_instance.server`)
+4. **Want to start over?** Destroy resources (`terraform destroy` if state exists, or manually via AWS Console/CLI), delete `terraform.tfstate`, and re-run `simulate-disaster.sh`
 
 ---
 
-## Real-World Tips
+## Common Errors
 
-### 1. Document Resource IDs
-
-Keep a record of critical resource IDs somewhere outside of Terraform:
-- Confluence/Wiki pages
-- AWS resource tags
-- Separate backup documentation
-
-### 2. Enable State Versioning
-
-If using S3 backend, enable versioning:
-```bash
-aws s3api put-bucket-versioning \
-  --bucket my-state-bucket \
-  --versioning-configuration Status=Enabled
-```
-
-This lets you recover deleted state from S3 version history.
-
-### 3. Use Remote State
-
-Local state files are easily lost. Use remote backends (S3, Terraform Cloud) for production.
-
-### 4. Regular State Backups
-
-```bash
-# Pull state to a backup file
-terraform state pull > state-backup-$(date +%Y%m%d).json
-```
-
----
-
-## What You Learned
-
-1. **State is critical** - Without it, Terraform doesn't know what it manages
-2. **Import rebuilds state** - Links configuration to existing resources
-3. **Import requires matching config** - Resource block must exist in .tf files
-4. **Always verify** - Run `terraform plan` after import to confirm success
-
----
-
-## Next Steps
-
-After completing this scenario:
-- Practice with [Scenario 3: Moving Resources](../scenario-3-move/) between states
-- Learn about [Scenario 4: Backend Migration](../scenario-4-backend-migration/) for changing state storage
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Resource already exists in state" | You imported the same resource twice | `terraform state rm <resource>` then re-import |
+| "Plan shows changes after import" | main.tf doesn't match actual attributes | Run `terraform state show` and copy exact values to main.tf |
+| "Cannot find resource" | Wrong resource ID | Check `resource-ids.txt` for correct IDs |
+| "Resource not found in configuration" | Resource block missing from main.tf | Ensure `main.tf` has all 3 resource blocks |
+| "InvalidAMIID" | AMI ID in main.tf doesn't match | Get correct AMI from `terraform state show aws_instance.web` |

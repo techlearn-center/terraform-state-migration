@@ -1,483 +1,285 @@
-# Scenario 4: Backend Migration
+# Scenario 4: Backend Migration (Switching Between Backends)
 
-## The Scenario
+## What is This Scenario About?
 
-Your company has decided to reorganize its Terraform state storage. You need to migrate state from one S3 bucket to another **without destroying or recreating any resources**.
+**The Problem:** Your company stores Terraform state in S3 bucket "A". Due to a compliance requirement (or a company restructuring, or a region change), you need to move the state to a different S3 bucket "B". The infrastructure must remain untouched - you're only changing WHERE the state file is stored.
 
-**Your mission:** Safely migrate Terraform state between S3 backends with zero downtime.
+**The Solution:** Use `terraform init -migrate-state` to move the state from one S3 backend to another. This is similar to Scenario 1 (local to remote), but this time you're migrating between two remote backends.
 
----
-
-## Choose Your Mode
-
-This scenario supports **two modes**. Choose based on your situation:
-
-| Mode | Best For | Cost | Requirements |
-|------|----------|------|--------------|
-| **LocalStack** (Default) | Learning, practice | Free | Docker installed |
-| **Real AWS** | Real-world experience | ~$0.01-0.05 | AWS account + credentials |
+**Real-World Example:** Your company was acquired, and the new parent company requires all Terraform state to be stored in their centralized S3 bucket in a different AWS account. You need to migrate state from the old bucket to the new one without any infrastructure downtime.
 
 ---
 
-## Why This Matters
+## Learning Objectives
 
-Backend migrations happen frequently in real organizations:
+By completing this scenario, you will:
 
-| Situation | Example |
-|-----------|---------|
-| **Company restructuring** | Moving from `company-old-tfstate` to `company-new-tfstate` |
-| **Region change** | Migrating state from `us-east-1` to `eu-west-1` for compliance |
-| **Account migration** | Moving state to a new AWS account |
-| **Naming convention update** | Changing from `tfstate-prod` to `prod-terraform-state` |
-| **Provider change** | Moving from Terraform Cloud to S3 (or vice versa) |
+- [ ] Understand that backends can be changed without affecting infrastructure
+- [ ] Know how to configure multiple S3 backend configurations
+- [ ] Be able to switch between backend configurations by renaming files
+- [ ] Successfully migrate state between two different S3 buckets
+- [ ] Verify state exists in the target bucket after migration
 
-### The Wrong Way vs The Right Way
-
-```
-+------------------------------------------------------------------+
-|                     BACKEND MIGRATION                             |
-+------------------------------------------------------------------+
-
-  WRONG: Delete state and re-apply
-  =========================================
-
-  terraform destroy              # Destroys all resources!
-  [edit backend config]
-  terraform init
-  terraform apply                # Recreates everything
-
-  Result: Downtime, potential data loss, DNS changes, etc.
-
-
-  RIGHT: Use terraform init -migrate-state
-  =========================================
-
-  [edit backend config]
-  terraform init -migrate-state  # Copies state to new backend
-  terraform plan                 # Shows "No changes"
-
-  Result: Zero downtime, no resource changes
-
-+------------------------------------------------------------------+
-```
+**After this scenario, you should be able to answer:**
+- "How do you migrate state between two S3 buckets?"
+- "What happens to the state in the original bucket after migration?"
+- "What's the difference between `-migrate-state` and `-reconfigure`?"
 
 ---
 
-## Understanding Backends
+## Prerequisites
 
-### What is a Backend?
-
-A **backend** determines where Terraform stores its **state file**. The state file tracks:
-- Which resources Terraform manages
-- Resource IDs and attributes
-- Dependencies between resources
-
-```
-+-------------------+     +-----------------+     +------------------+
-|  Your .tf files   | --> | terraform apply | --> | AWS Resources    |
-|  (Configuration)  |     |                 |     | (Reality)        |
-+-------------------+     +--------+--------+     +------------------+
-                                  |
-                                  v
-                         +-----------------+
-                         |   State File    |
-                         | (terraform.tfstate)
-                         |                 |
-                         | Stored in your  |
-                         | BACKEND (S3)    |
-                         +-----------------+
-```
-
-### Common Backend Types
-
-| Backend | Where State is Stored | Best For |
-|---------|----------------------|----------|
-| `local` | Your computer (`terraform.tfstate`) | Learning, personal projects |
-| `s3` | AWS S3 bucket | Teams using AWS |
-| `azurerm` | Azure Blob Storage | Teams using Azure |
-| `gcs` | Google Cloud Storage | Teams using GCP |
-| `remote` | Terraform Cloud | Enterprise teams |
+- Docker Desktop running (for LocalStack) OR AWS account configured (for Real AWS)
+- Terraform CLI installed
+- You are inside the `scenario-4-backend-migration/` directory
 
 ---
 
-## File Structure
+## Understanding the File Structure
 
 ```
 scenario-4-backend-migration/
-|-- main.tf                      # Resources (instance, security group)
-|-- provider-localstack.tf       # LocalStack provider (default)
-|-- provider-aws.tf.example      # Real AWS provider (rename to use)
-|-- backend-a.tf                 # LocalStack Backend A (default)
-|-- backend-b.tf.example         # LocalStack Backend B (rename to migrate)
-|-- backend-a-aws.tf.example     # Real AWS Backend A (rename to use)
-|-- backend-b-aws.tf.example     # Real AWS Backend B (rename to migrate)
-|-- terraform.tfvars.aws.example # Variables for Real AWS
-|-- create-buckets.sh            # Script to create S3 buckets
-|-- create-buckets.ps1           # Windows version
-+-- README.md                    # This file
+├── main.tf                # Terraform resources (EC2 instance + security group)
+├── backend-a.tf           # Backend config pointing to S3 Bucket A (active)
+├── backend-b.tf.example   # Backend config pointing to S3 Bucket B (inactive)
+├── create-buckets.sh      # Script to create both S3 buckets
+└── create-buckets.ps1     # PowerShell version for Windows
 ```
+
+**The key idea:** Terraform can only use ONE backend at a time. By renaming files, you switch which backend is active:
+- `backend-a.tf` (active) + `backend-b.tf.example` (ignored) = Using Bucket A
+- `backend-a.tf.bak` (ignored) + `backend-b.tf` (active) = Using Bucket B
+
+Terraform only reads files ending in `.tf` - anything else (`.example`, `.bak`) is ignored.
 
 ---
 
-## Option A: LocalStack (Free - Recommended for Learning)
+## Step-by-Step Instructions
 
-### Prerequisites
-
-- Docker installed
-- AWS CLI installed
-
-### Step 1: Start LocalStack
-
-```bash
-# From the repository root
-docker-compose up -d
-
-# Verify LocalStack is running
-curl http://localhost:4566/_localstack/health
-```
-
-### Step 2: Create the S3 Buckets
+### Step 1: Navigate to the Scenario Directory
 
 ```bash
 cd scenario-4-backend-migration
-
-# Make script executable (Linux/Mac)
-chmod +x create-buckets.sh
-
-# Run the script
-./create-buckets.sh           # Linux/Mac
-.\create-buckets.ps1          # Windows PowerShell
 ```
 
-This creates:
-- `tfstate-bucket-a` (source bucket)
-- `tfstate-bucket-b` (target bucket)
+### Step 2: Create Both S3 Buckets
+
+```bash
+# Make the script executable
+chmod +x create-buckets.sh
+
+# Create both S3 buckets
+./create-buckets.sh           # For LocalStack (default)
+# OR
+./create-buckets.sh aws       # For Real AWS
+```
+
+**What does `create-buckets.sh` do?**
+- Creates TWO S3 buckets: one called "Bucket A" (the source) and one called "Bucket B" (the destination)
+- For LocalStack, the bucket names are `tfstate-bucket-a` and `tfstate-bucket-b`
+- For Real AWS, it generates unique bucket names (since S3 bucket names must be globally unique)
+- Enables versioning and encryption on both buckets
+- Outputs the bucket names - **save these if using Real AWS!**
 
 ### Step 3: Initialize with Backend A
 
 ```bash
+# Initialize Terraform using Backend A (the current active backend)
 terraform init
 ```
 
-You should see:
-```
-Initializing the backend...
-Successfully configured the backend "s3"!
-```
+**What does `terraform init` do here?**
+- Reads `backend-a.tf` to find the backend configuration
+- Connects to S3 Bucket A
+- Creates or downloads the state file from Bucket A
+- Since this is the first run, the state is empty
 
 ### Step 4: Create Resources
 
 ```bash
+# Create the resources defined in main.tf
 terraform apply -auto-approve
 ```
+
+**What does this create?**
+- An EC2 instance (`aws_instance.app`) and a security group (`aws_security_group.app`)
+- The state file is stored in S3 Bucket A
+- This simulates your existing infrastructure before the migration
 
 ### Step 5: Verify State is in Bucket A
 
 ```bash
+# For LocalStack: List contents of Bucket A
 aws s3 ls s3://tfstate-bucket-a/ --recursive --endpoint-url http://localhost:4566
+
+# For Real AWS: (use your actual bucket name)
+# aws s3 ls s3://YOUR-BUCKET-A/ --recursive
 ```
 
-Expected output:
-```
-2024-01-15 10:30:00       1234 scenario-4/terraform.tfstate
-```
+**What does `aws s3 ls` do?**
+- Lists all files in the S3 bucket
+- `--recursive` shows files in all subdirectories
+- You should see a file like `scenario-4/terraform.tfstate` - that's your state!
+- `--endpoint-url` tells the AWS CLI to talk to LocalStack instead of real AWS
 
 ### Step 6: Switch Backend Configuration
 
 ```bash
-# Disable Backend A
+# Rename backend-a.tf to disable it (Terraform ignores non-.tf files)
 mv backend-a.tf backend-a.tf.bak
 
-# Enable Backend B
+# Rename backend-b.tf.example to activate it
 mv backend-b.tf.example backend-b.tf
 ```
 
-### Step 7: Migrate the State
+**What do these `mv` (move/rename) commands do?**
+- `mv backend-a.tf backend-a.tf.bak` - Renames the file so it no longer ends in `.tf`. Terraform won't read it anymore.
+- `mv backend-b.tf.example backend-b.tf` - Renames the file so it ends in `.tf`. Terraform will now read this as the backend configuration.
+- After this, Terraform thinks the backend is Bucket B (but the state is still in Bucket A!)
+
+### Step 7: Migrate State to Backend B
 
 ```bash
+# Migrate the state from Bucket A to Bucket B
 terraform init -migrate-state
 ```
 
-When prompted, type `yes` and press Enter.
+**What does `terraform init -migrate-state` do?**
+- Detects that the backend configuration has changed (from Bucket A to Bucket B)
+- Asks: "Do you want to copy existing state to the new backend?"
+- When you answer **"yes"**:
+  1. Downloads the state from Bucket A
+  2. Uploads it to Bucket B
+  3. Updates Terraform's internal tracking to use Bucket B
+- The state in Bucket A is NOT deleted (it remains as a backup)
 
-### Step 8: Verify Migration
+**Type `yes` when prompted.**
+
+### Step 8: Verify the Migration
 
 ```bash
-# Should show "No changes"
+# Check that no infrastructure changes are needed
 terraform plan
+# Should show: "No changes"
 
-# Verify state is in Bucket B
+# For LocalStack: Verify state is now in Bucket B
 aws s3 ls s3://tfstate-bucket-b/ --recursive --endpoint-url http://localhost:4566
+
+# For Real AWS: (use your actual bucket name)
+# aws s3 ls s3://YOUR-BUCKET-B/ --recursive
 ```
+
+**What are we verifying?**
+- `terraform plan` showing "No changes" proves the migration was seamless - infrastructure is untouched
+- `aws s3 ls` on Bucket B proves the state file is in the new location
 
 ---
 
-## Option B: Real AWS
+## Collecting Evidence
 
-### Prerequisites
-
-- AWS account with billing enabled
-- AWS CLI installed and configured (`aws configure`)
-- Permissions: S3, EC2
-
-### Step 1: Verify AWS Credentials
+Save proof that you completed this scenario:
 
 ```bash
-aws sts get-caller-identity
+# Create the evidence directory if it doesn't exist
+mkdir -p ../evidence
+
+# Save the terraform plan output (proves "No changes" after migration)
+terraform plan -no-color > ../evidence/scenario4-plan.txt
+
+# Save the state list (proves resources are tracked)
+terraform state list > ../evidence/scenario4-state.txt
+
+# For LocalStack: Prove state is in Bucket B
+aws s3 ls s3://tfstate-bucket-b/ --recursive --endpoint-url http://localhost:4566 > ../evidence/scenario4-bucket-b.txt
+
+# For Real AWS: (use your actual bucket name)
+# aws s3 ls s3://YOUR-BUCKET-B/ --recursive > ../evidence/scenario4-bucket-b.txt
 ```
 
-### Step 2: Switch to AWS Provider
+**What are these evidence commands doing?**
+- Saves plan output proving infrastructure was not affected by the migration
+- Saves state list proving resources are still tracked
+- Saves S3 listing proving state is in the new bucket (Bucket B)
 
+---
+
+## Cleanup
+
+### For LocalStack:
 ```bash
-cd scenario-4-backend-migration
-
-# Disable LocalStack provider
-mv provider-localstack.tf provider-localstack.tf.bak
-
-# Enable AWS provider
-mv provider-aws.tf.example provider-aws.tf
+# Destroy all resources
+terraform destroy -auto-approve
 ```
 
-### Step 3: Create the S3 Buckets
-
+### For Real AWS:
 ```bash
-chmod +x create-buckets.sh
-./create-buckets.sh aws
-```
-
-**Important:** Note the bucket names from the output! They include your account ID and timestamp for uniqueness.
-
-Example output:
-```
-Source Bucket (A): tfstate-scenario4-a-123456789012-20240115103000
-Target Bucket (B): tfstate-scenario4-b-123456789012-20240115103000
-```
-
-### Step 4: Configure Backend A
-
-```bash
-# Disable LocalStack backend
-mv backend-a.tf backend-a-localstack.tf.bak
-
-# Enable AWS backend
-mv backend-a-aws.tf.example backend-a.tf
-```
-
-**Edit `backend-a.tf`** and replace `YOUR-BUCKET-A-NAME` with your actual bucket name:
-
-```hcl
-terraform {
-  backend "s3" {
-    bucket = "tfstate-scenario4-a-123456789012-20240115103000"  # Your bucket name
-    key    = "scenario-4/terraform.tfstate"
-    region = "us-east-1"
-  }
-}
-```
-
-### Step 5: Configure Variables
-
-```bash
-mv terraform.tfvars.aws.example terraform.tfvars
-```
-
-**Edit `terraform.tfvars`** and update the AMI ID for your region:
-
-```hcl
-use_localstack = false
-ami_id = "ami-0c101f26f147fa7fd"  # Update for your region
-```
-
-To find the latest Amazon Linux AMI:
-```bash
-aws ec2 describe-images --owners amazon \
-  --filters "Name=name,Values=al2023-ami-*-x86_64" \
-  --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
-  --output text
-```
-
-### Step 6: Initialize and Create Resources
-
-```bash
-terraform init
-terraform apply -auto-approve
-```
-
-### Step 7: Verify State is in Bucket A
-
-```bash
-aws s3 ls s3://YOUR-BUCKET-A-NAME/ --recursive
-```
-
-### Step 8: Configure Backend B
-
-**Edit `backend-b-aws.tf.example`** and replace `YOUR-BUCKET-B-NAME` with your actual bucket name.
-
-```bash
-# Disable Backend A
-mv backend-a.tf backend-a.tf.bak
-
-# Enable Backend B
-mv backend-b-aws.tf.example backend-b.tf
-```
-
-### Step 9: Migrate the State
-
-```bash
-terraform init -migrate-state
-```
-
-When prompted, type `yes`.
-
-### Step 10: Verify Migration
-
-```bash
-# Should show "No changes"
-terraform plan
-
-# Verify state is in Bucket B
-aws s3 ls s3://YOUR-BUCKET-B-NAME/ --recursive
-```
-
-### Step 11: Clean Up (Important!)
-
-```bash
-# Destroy resources to avoid charges
+# Destroy all resources
 terraform destroy -auto-approve
 
-# Delete the S3 buckets
-aws s3 rb s3://YOUR-BUCKET-A-NAME --force
-aws s3 rb s3://YOUR-BUCKET-B-NAME --force
+# Delete BOTH S3 buckets (use your actual bucket names)
+aws s3 rb s3://YOUR-BUCKET-A --force
+aws s3 rb s3://YOUR-BUCKET-B --force
 ```
+
+**Why delete both buckets?**
+- Bucket A still has the old state file (it wasn't deleted during migration)
+- Bucket B has the current state file
+- S3 buckets incur storage costs even if small
+- `--force` empties the bucket before deleting it
 
 ---
 
-## What Happened Behind the Scenes?
+## Self-Reflection Questions
 
-When you ran `terraform init -migrate-state`:
+After completing this scenario, take a few minutes to reflect:
 
-1. Terraform read the state from Bucket A
-2. Terraform wrote the state to Bucket B
-3. Terraform updated `.terraform/terraform.tfstate` to point to Bucket B
-4. Future operations now use Bucket B
+1. **What was this scenario about?**
+   - Why would a company need to migrate state between two S3 buckets?
+   - What real-world events trigger backend migrations?
 
-```
-terraform init -migrate-state
+2. **What did I learn?**
+   - How does Terraform know which backend to use? (It reads `.tf` files)
+   - What is the difference between `-migrate-state` and `-reconfigure`?
+     - `-migrate-state`: Copies state from old backend to new backend
+     - `-reconfigure`: Starts fresh with the new backend (doesn't copy state!)
+   - What happens to the state in the old bucket after migration?
 
-    +----------------+         +----------------+
-    |   Bucket A     |  COPY   |   Bucket B     |
-    |----------------|  ---->  |----------------|
-    | tfstate file   |         | tfstate file   |
-    +----------------+         +----------------+
+3. **Did I collect evidence?**
+   - Did I save the plan output showing "No changes"?
+   - Did I prove the state file exists in Bucket B?
 
-    .terraform/terraform.tfstate now points to Bucket B
-```
+4. **Could I do this again without instructions?**
+   - What are the steps? (Create new bucket, update backend config, init -migrate-state, verify plan)
+   - Could you migrate from S3 to Azure Blob Storage? (Same concept, different backend type)
 
----
+5. **What would be different in production?**
+   - Would you coordinate with the team before changing the backend?
+   - What happens if someone runs `terraform apply` during the migration?
+   - Should you enable state locking on both buckets?
 
-## Common Mistakes and Solutions
-
-### Mistake 1: Both backend files active
-
-**Error:**
-```
-Error: Duplicate backend configuration
-```
-
-**Solution:** Only ONE `backend` block can exist. Rename or delete the old one:
-```bash
-mv backend-a.tf backend-a.tf.bak
-```
-
-### Mistake 2: Forgetting -migrate-state flag
-
-**Error:**
-```
-Error: Backend configuration changed
-```
-
-**Solution:** Use the `-migrate-state` flag:
-```bash
-terraform init -migrate-state
-```
-
-### Mistake 3: Answering "no" to migration prompt
-
-**Result:** State stays in old bucket, new bucket is empty.
-
-**Solution:** Re-run `terraform init -migrate-state` and answer "yes".
-
-### Mistake 4: Mixing LocalStack and AWS configs
-
-**Error:** Various connection errors
-
-**Solution:** Make sure you're using matching configs:
-- LocalStack: `provider-localstack.tf` + `backend-a.tf` (LocalStack version)
-- Real AWS: `provider-aws.tf` + `backend-a.tf` (AWS version)
-
-### Mistake 5: Wrong bucket name in backend config
-
-**Error:**
-```
-Error: Failed to get existing workspaces: S3 bucket does not exist
-```
-
-**Solution:** Double-check bucket name matches exactly what `create-buckets.sh` created.
+**Write a brief report** in `../evidence/my-learning-report.md` documenting your answers.
 
 ---
 
 ## Success Criteria
 
-- [ ] Both S3 buckets created
-- [ ] Resources created with Backend A
-- [ ] State migrated to Backend B
-- [ ] `terraform plan` shows "No changes"
-- [ ] State file exists in Bucket B
+- [ ] Both S3 buckets created (Step 2)
+- [ ] Resources created with state in Bucket A (Step 4)
+- [ ] State verified in Bucket A (Step 5)
+- [ ] Backend configuration switched to Bucket B (Step 6)
+- [ ] State migrated to Bucket B (Step 7)
+- [ ] `terraform plan` shows "No changes" (Step 8)
+- [ ] State verified in Bucket B (Step 8)
+- [ ] Evidence files saved in `../evidence/` directory
 
 ---
 
-## Key Concepts Summary
+## Common Errors
 
-| Concept | Description |
-|---------|-------------|
-| **Backend** | Where Terraform stores state (local, S3, etc.) |
-| **State file** | JSON file tracking managed resources |
-| **Backend migration** | Moving state from one backend to another |
-| **`-migrate-state`** | Flag that tells Terraform to copy existing state |
-
----
-
-## Real-World Best Practices
-
-### 1. Always Backup Before Migration
-
-```bash
-# Pull current state to a local backup
-terraform state pull > state-backup-$(date +%Y%m%d).json
-```
-
-### 2. Enable Versioning on State Buckets
-
-```bash
-aws s3api put-bucket-versioning \
-  --bucket my-state-bucket \
-  --versioning-configuration Status=Enabled
-```
-
-### 3. Test in Non-Production First
-
-Never migrate production state without testing the process first!
-
-### 4. Coordinate with Your Team
-
-- Announce the migration window
-- Ensure no one else is running Terraform
-- Use state locking (DynamoDB) to prevent conflicts
-
----
-
-## Next Steps
-
-After completing this scenario:
-- Try [Scenario 5: State Recovery](../scenario-5-state-recovery/) to learn disaster recovery
-- Explore using DynamoDB for state locking
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Backend configuration changed" | Terraform detected the switch but you didn't run init | Run `terraform init -migrate-state` |
+| "Error copying state" | Target bucket doesn't exist | Run `create-buckets.sh` first |
+| "Two backend blocks found" | Both .tf files are active | Make sure only ONE backend file ends in `.tf` |
+| "No state file found" in new bucket | Migration didn't complete | Re-run `terraform init -migrate-state` and answer "yes" |
+| "localhost:4566 connection refused" | LocalStack isn't running | Run `docker-compose up -d` from project root |

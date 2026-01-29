@@ -1,160 +1,88 @@
 # Scenario 3: Move Resources Between State Files
 
-## The Scenario
+## What is This Scenario About?
 
-Your Terraform project has grown too large. You need to split it into separate projects - moving the database resources to a dedicated "database" project while keeping web resources in the original project.
+**The Problem:** Your Terraform project has grown too large. It started as a single project managing a web server and a database server, but now it has hundreds of resources. Every `terraform plan` takes forever, and a change to the web server risks accidentally affecting the database. You need to split the project into two: one for web resources and one for database resources.
 
-**Your mission:** Move resources from one Terraform state to another without destroying them.
+**The Solution:** Use `terraform state mv` to move resources from one state file to another without destroying or recreating them. The actual servers in AWS are untouched - you're just reorganizing how Terraform tracks them.
 
----
-
-## Choose Your Mode
-
-| Mode | Best For | Cost | Requirements |
-|------|----------|------|--------------|
-| **LocalStack** (Default) | Learning, practice | Free | Docker installed |
-| **Real AWS** | Real-world experience | ~$0.02-0.05 | AWS account + credentials |
+**Real-World Example:** A company's monolithic Terraform codebase has 500+ resources. They need to split it into separate projects by team: the Platform team manages networking, the App team manages compute, and the Data team manages databases. Each team needs their own state file to work independently.
 
 ---
 
-## Why This Matters
+## Learning Objectives
 
-### When to Split Terraform State
+By completing this scenario, you will:
 
-| Situation | Example |
-|-----------|---------|
-| **Large monolith** | Single state with 500+ resources becomes slow |
-| **Team boundaries** | Database team vs Application team |
-| **Blast radius** | Limit damage if something goes wrong |
-| **Different lifecycles** | Infrastructure vs Application resources |
-| **Compliance** | Separate state for PCI/HIPAA resources |
+- [ ] Understand why splitting state files is important for large projects
+- [ ] Know how to use `terraform state mv` to move resources between state files
+- [ ] Understand the `-state-out` flag for targeting a different state file
+- [ ] Know that you must also update the Terraform code (main.tf) in both projects
+- [ ] Understand that moving state doesn't affect actual infrastructure
 
-### The Problem: Monolithic State
-
-```
-BEFORE (One Big Project):
-=========================
-
-old-project/
-|-- main.tf
-|   |-- aws_instance.web
-|   |-- aws_security_group.web
-|   |-- aws_instance.db        <-- Should be separate
-|   |-- aws_security_group.db  <-- Should be separate
-|
-+-- terraform.tfstate (tracks ALL resources)
-
-Problems:
-- Slow terraform plan/apply (500+ resources)
-- Risk: one mistake affects everything
-- Hard to manage team permissions
-- Complex code reviews
-```
-
-### The Solution: Split State
-
-```
-AFTER (Separate Projects):
-==========================
-
-old-project/                       new-project/
-|-- main.tf                        |-- main.tf
-|   |-- aws_instance.web           |   |-- aws_instance.db
-|   |-- aws_security_group.web     |   |-- aws_security_group.db
-|                                  |
-+-- terraform.tfstate              +-- terraform.tfstate
-    (web resources only)               (db resources only)
-
-Benefits:
-- Faster operations
-- Isolated blast radius
-- Clear ownership
-- Simpler code reviews
-```
+**After this scenario, you should be able to answer:**
+- "What does `terraform state mv` do and when would you use it?"
+- "What happens to the actual resources when you move them between state files?"
+- "After moving state, why do you need to update main.tf in both projects?"
 
 ---
 
-## Understanding terraform state mv
+## Prerequisites
 
-### What It Does
-
-```
-terraform state mv -state-out=../new-project/terraform.tfstate \
-  aws_instance.db aws_instance.db
-
-BEFORE:
-=======
-old-project/terraform.tfstate:
-  - aws_instance.web
-  - aws_instance.db     <-- This resource
-
-new-project/terraform.tfstate:
-  (empty)
-
-
-AFTER:
-======
-old-project/terraform.tfstate:
-  - aws_instance.web
-
-new-project/terraform.tfstate:
-  - aws_instance.db     <-- Moved here!
-
-The actual AWS resource is NOT touched!
-Only the state file reference moves.
-```
+- Docker Desktop running (for LocalStack) OR AWS account configured (for Real AWS)
+- Terraform CLI installed
+- You are inside the `scenario-3-move/` directory
 
 ---
 
-## File Structure
+## Understanding the Project Structure
+
+This scenario has two sub-directories:
 
 ```
 scenario-3-move/
-|-- old-project/                   # Source project (web + db)
-|   |-- main.tf
-|   |-- provider-localstack.tf
-|   +-- provider-aws.tf.example
-|
-|-- new-project/                   # Destination project (db only)
-|   |-- main.tf
-|   |-- provider-localstack.tf
-|   +-- provider-aws.tf.example
-|
-|-- move-resources.sh              # Script to move resources
-+-- README.md                      # This file
+├── old-project/        # The monolithic project (has BOTH web and db resources)
+│   └── main.tf         # Contains web AND database resource definitions
+├── new-project/        # The new project (database resources will move here)
+│   └── main.tf         # Has commented-out database resource definitions
+└── move-resources.sh   # Helper script (optional - you can do it manually)
 ```
+
+**The goal:** Move `aws_instance.db` and `aws_security_group.db` from `old-project` to `new-project`.
 
 ---
 
-## Option A: LocalStack (Free - Recommended for Learning)
+## Step-by-Step Instructions
 
-### Prerequisites
-
-- Docker installed
-- AWS CLI installed
-
-### Step 1: Start LocalStack
-
-```bash
-# From the repository root
-docker-compose up -d
-```
-
-### Step 2: Create Resources in Old Project
+### Step 1: Navigate to the Old Project
 
 ```bash
 cd scenario-3-move/old-project
+```
 
+### Step 2: Initialize and Create All Resources
+
+```bash
+# Download providers and set up local state
 terraform init
+
+# Create ALL resources (both web and database)
 terraform apply -auto-approve
 ```
 
-Check what was created:
+**What does this do?**
+- Creates 4 resources: `aws_instance.web`, `aws_instance.db`, `aws_security_group.web`, `aws_security_group.db`
+- All 4 are tracked in `old-project/terraform.tfstate`
+- This simulates the "too-big monolithic project"
+
+### Step 3: Verify All Resources Exist
+
 ```bash
+# List all resources in the old project state
 terraform state list
 ```
 
-Output:
+**Expected output:**
 ```
 aws_instance.db
 aws_instance.web
@@ -162,319 +90,226 @@ aws_security_group.db
 aws_security_group.web
 ```
 
-### Step 3: Initialize New Project
+All 4 resources are in a single state file. That's the problem we're going to fix.
+
+### Step 4: Initialize the New Project
 
 ```bash
+# Go to the new project directory
 cd ../new-project
 
+# Initialize Terraform (creates an empty state file)
 terraform init
+
+# Go back to old-project (we need to run the move commands from here)
+cd ../old-project
 ```
 
-### Step 4: Move Database Resources
+**What does `terraform init` do in new-project?**
+- Creates an empty state file in `new-project/`
+- This is where the database resources will be moved TO
 
-Go back to old-project and move the resources:
+### Step 5: Move the Database Security Group
 
 ```bash
-cd ../old-project
-
-# Move the database security group
+# Move the database security group from old-project to new-project
 terraform state mv \
   -state-out=../new-project/terraform.tfstate \
   aws_security_group.db aws_security_group.db
+```
 
-# Move the database instance
+**Breaking down this command:**
+- `terraform state mv` - The command to move a resource in state
+- `-state-out=../new-project/terraform.tfstate` - Where to move it TO (the new project's state file)
+- First `aws_security_group.db` - The resource address in the SOURCE state (old-project)
+- Second `aws_security_group.db` - The resource address in the DESTINATION state (new-project). Same name here, but you could rename it if needed.
+
+**What happens behind the scenes:**
+- Terraform reads the resource data from `old-project/terraform.tfstate`
+- Writes that data into `new-project/terraform.tfstate`
+- Removes the resource from `old-project/terraform.tfstate`
+- **The actual security group in AWS is completely untouched!** This is purely a bookkeeping change.
+
+### Step 6: Move the Database Instance
+
+```bash
+# Move the database instance from old-project to new-project
 terraform state mv \
   -state-out=../new-project/terraform.tfstate \
   aws_instance.db aws_instance.db
 ```
 
-### Step 5: Verify the Move
+**Why move the security group first?**
+- The database instance references the security group
+- Moving dependencies first prevents potential issues
+- In practice, order usually doesn't matter for state moves, but it's a good habit
 
-Check old-project (should only have web resources):
+### Step 7: Verify the Move
+
 ```bash
+# Check what's left in old-project (should only be web resources)
 terraform state list
 ```
 
-Output:
+**Expected output:**
 ```
 aws_instance.web
 aws_security_group.web
 ```
 
-Check new-project:
 ```bash
+# Check what's now in new-project (should have database resources)
 cd ../new-project
 terraform state list
 ```
 
-Output:
+**Expected output:**
 ```
 aws_instance.db
 aws_security_group.db
 ```
 
-### Step 6: Update Configuration Files
+### Step 8: Update the Code in BOTH Projects
 
-**In old-project/main.tf:** Comment out or remove the db resources:
-```hcl
-# These have been moved to new-project:
-# resource "aws_security_group" "db" { ... }
-# resource "aws_instance" "db" { ... }
-```
+**This is the step people forget!** Moving state only changes WHERE Terraform tracks the resources. You must also update the code (`main.tf`) in both projects so the configuration matches the state.
 
-**In new-project/main.tf:** Uncomment the db resources (they're already there as comments).
+**In `old-project/main.tf`:**
+- Comment out or remove the database resource blocks (`aws_security_group.db` and `aws_instance.db`)
+- Keep the web resource blocks
+- Comment out or remove the database outputs (`db_instance_id`, `db_sg_id`)
 
-### Step 7: Verify No Changes
+**In `new-project/main.tf`:**
+- Uncomment the database resource blocks (they're already provided as comments)
+- Uncomment the database outputs
+
+### Step 9: Verify Both Projects - Must Show "No Changes"
 
 ```bash
-# In old-project
+# Verify old-project
 cd ../old-project
 terraform plan
 # Should show: "No changes"
 
-# In new-project
+# Verify new-project
 cd ../new-project
 terraform plan
 # Should show: "No changes"
 ```
 
+**What does `terraform plan` verify here?**
+- For old-project: The code only defines web resources, and the state only has web resources. They match.
+- For new-project: The code defines database resources, and the state has database resources. They match.
+- If either shows changes, your `main.tf` doesn't match the state - go back and fix the code.
+
 ---
 
-## Option B: Real AWS
+## Collecting Evidence
 
-### Prerequisites
-
-- AWS account with billing enabled
-- AWS CLI installed and configured
-- Permissions: EC2
-
-### Step 1: Switch to AWS Provider (Both Projects)
+Save proof that you completed this scenario:
 
 ```bash
-cd scenario-3-move/old-project
+# From the scenario-3-move directory
+cd ..  # if you're in old-project or new-project
 
-# Switch provider
-mv provider-localstack.tf provider-localstack.tf.bak
-mv provider-aws.tf.example provider-aws.tf
+# Create the evidence directory if it doesn't exist
+mkdir -p ../evidence
 
-# Do the same for new-project
+# Save old-project state list (proves web resources remain)
+cd old-project
+terraform state list > ../../evidence/scenario3-old-state.txt
+terraform plan -no-color > ../../evidence/scenario3-old-plan.txt
+
+# Save new-project state list (proves database resources moved)
 cd ../new-project
-mv provider-localstack.tf provider-localstack.tf.bak
-mv provider-aws.tf.example provider-aws.tf
+terraform state list > ../../evidence/scenario3-new-state.txt
+terraform plan -no-color > ../../evidence/scenario3-new-plan.txt
 ```
 
-### Step 2: Create Resources in Old Project
+**What are these evidence commands doing?**
+- Saves the state list from both projects to prove the resources were split correctly
+- Saves the plan output from both projects to prove "No changes" in each
 
+---
+
+## Cleanup
+
+### For LocalStack:
 ```bash
-cd ../old-project
-
-terraform init
-terraform apply -auto-approve
-```
-
-### Step 3: Initialize New Project
-
-```bash
-cd ../new-project
-terraform init
-```
-
-### Step 4: Move Database Resources
-
-```bash
-cd ../old-project
-
-# Move resources
-terraform state mv \
-  -state-out=../new-project/terraform.tfstate \
-  aws_security_group.db aws_security_group.db
-
-terraform state mv \
-  -state-out=../new-project/terraform.tfstate \
-  aws_instance.db aws_instance.db
-```
-
-### Step 5: Update Configuration Files
-
-Same as LocalStack - update both main.tf files.
-
-### Step 6: Verify No Changes
-
-```bash
-cd ../old-project
-terraform plan  # No changes
-
-cd ../new-project
-terraform plan  # No changes
-```
-
-### Step 7: Clean Up (Important!)
-
-```bash
-# Destroy new-project resources
-cd ../new-project
+# Destroy resources in BOTH projects
+cd old-project
 terraform destroy -auto-approve
 
-# Destroy old-project resources
-cd ../old-project
+cd ../new-project
 terraform destroy -auto-approve
 ```
 
----
-
-## The terraform state mv Command
-
-### Syntax
-
+### For Real AWS:
 ```bash
-terraform state mv [options] SOURCE DESTINATION
-```
+# IMPORTANT: Destroy in BOTH projects to stop all billing
+cd old-project
+terraform destroy -auto-approve
 
-### Common Options
-
-| Option | Description |
-|--------|-------------|
-| `-state-out=PATH` | Write to a different state file |
-| `-dry-run` | Preview without making changes |
-| `-lock=false` | Don't lock state during operation |
-
-### Examples
-
-**Move within same state (rename):**
-```bash
-terraform state mv aws_instance.web aws_instance.web_server
-```
-
-**Move to different state file:**
-```bash
-terraform state mv -state-out=../other/terraform.tfstate \
-  aws_instance.db aws_instance.db
-```
-
-**Move with different name in destination:**
-```bash
-terraform state mv -state-out=../other/terraform.tfstate \
-  aws_instance.db aws_instance.database
-```
-
----
-
-## Common Mistakes and Solutions
-
-### Mistake 1: Forgetting to update configuration
-
-**Symptom:** After moving state, `terraform plan` shows resources will be created/destroyed.
-
-**Solution:**
-- Remove/comment resource blocks from source project's main.tf
-- Add/uncomment resource blocks in destination project's main.tf
-
-### Mistake 2: Moving before initializing destination
-
-**Error:**
-```
-Error: state path "../new-project/terraform.tfstate" does not exist
-```
-
-**Solution:** Initialize the destination project first:
-```bash
 cd ../new-project
-terraform init
+terraform destroy -auto-approve
 ```
 
-### Mistake 3: Dependency issues
+**Why destroy in both projects?**
+- After the move, each project only knows about its own resources
+- `old-project` will destroy the web resources
+- `new-project` will destroy the database resources
+- If you only destroy one, the other resources keep running (and costing money!)
 
-**Symptom:** Resources in new project reference resources in old project.
+---
 
-**Solution:** Update references to use data sources or hard-coded values:
-```hcl
-# Instead of:
-security_groups = [aws_security_group.web.id]
+## Self-Reflection Questions
 
-# Use:
-security_groups = ["sg-12345678"]  # Hard-coded ID
-# OR use a data source
-```
+After completing this scenario, take a few minutes to reflect:
 
-### Mistake 4: Running terraform apply before updating config
+1. **What was this scenario about?**
+   - Why would a team need to split a Terraform project?
+   - What are the risks of having too many resources in one state file?
 
-**Danger:** If you run `terraform apply` in old-project after moving state but before updating main.tf, Terraform will try to re-create the moved resources!
+2. **What did I learn?**
+   - What does `terraform state mv` do?
+   - What does the `-state-out` flag specify?
+   - Why do you need to update `main.tf` in BOTH projects after moving state?
+   - Do the actual cloud resources get affected when you move state?
 
-**Prevention:** Always update configuration files immediately after moving state.
+3. **Did I collect evidence?**
+   - Did I save state lists from both projects?
+   - Did I save plan outputs showing "No changes" in both?
+
+4. **Could I explain this to someone else?**
+   - Could you explain the difference between moving state vs. destroying and recreating?
+   - What would happen if you moved state but forgot to update `main.tf`?
+
+5. **What would be different in production?**
+   - How would you plan a state split with hundreds of resources?
+   - Would you do this during business hours or during a maintenance window?
+   - What backup steps would you take before moving resources?
+
+**Write a brief report** in `../evidence/my-learning-report.md` documenting your answers.
 
 ---
 
 ## Success Criteria
 
-- [ ] Resources created in old-project
-- [ ] Database resources moved to new-project
-- [ ] old-project state has only web resources
-- [ ] new-project state has only db resources
-- [ ] Both projects show "No changes" on plan
-- [ ] Configuration files updated in both projects
+- [ ] All 4 resources created in old-project (Step 2)
+- [ ] Database resources moved to new-project state (Steps 5-6)
+- [ ] old-project state shows only web resources (Step 7)
+- [ ] new-project state shows only database resources (Step 7)
+- [ ] main.tf updated in both projects (Step 8)
+- [ ] `terraform plan` shows "No changes" in BOTH projects (Step 9)
+- [ ] Evidence files saved in `../evidence/` directory
 
 ---
 
-## Key Commands Reference
+## Common Errors
 
-| Command | Purpose |
-|---------|---------|
-| `terraform state mv` | Move resource within/between states |
-| `terraform state list` | List resources in state |
-| `terraform state show <addr>` | Show resource details |
-| `terraform state rm <addr>` | Remove from state (doesn't destroy resource) |
-
----
-
-## Real-World Best Practices
-
-### 1. Plan Your Split
-
-Before moving, document:
-- Which resources move
-- New project structure
-- Dependency handling
-
-### 2. Coordinate with Team
-
-- Announce the migration window
-- Ensure no one else is running Terraform
-- Use state locking
-
-### 3. Backup State Files
-
-```bash
-# Before moving
-cp terraform.tfstate terraform.tfstate.backup
-```
-
-### 4. Move in Order
-
-Move dependent resources in the right order:
-1. Move security groups first
-2. Then move instances that use them
-
-### 5. Use Scripts for Large Moves
-
-For many resources, create a script:
-```bash
-#!/bin/bash
-# move-db-resources.sh
-
-terraform state mv -state-out=../new-project/terraform.tfstate \
-  aws_security_group.db aws_security_group.db
-
-terraform state mv -state-out=../new-project/terraform.tfstate \
-  aws_instance.db aws_instance.db
-
-terraform state mv -state-out=../new-project/terraform.tfstate \
-  aws_db_instance.main aws_db_instance.main
-```
-
----
-
-## Next Steps
-
-After completing this scenario:
-- Try [Scenario 4: Backend Migration](../scenario-4-backend-migration/)
-- Learn about [Scenario 5: State Recovery](../scenario-5-state-recovery/)
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Resource not found in state" | Wrong resource name or already moved | Check `terraform state list` for exact names |
+| "State file does not exist" for new-project | Didn't run `terraform init` in new-project | Run `terraform init` in new-project first |
+| Plan shows "will be created" in new-project | main.tf code not uncommented | Uncomment the database resource blocks in new-project/main.tf |
+| Plan shows "will be destroyed" in old-project | main.tf code not commented out | Comment out the database resource blocks in old-project/main.tf |
+| "Error writing state" | Permission issues or path wrong | Check the `-state-out` path is correct and directory exists |
